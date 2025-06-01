@@ -1,0 +1,47 @@
+# Node.js 相關
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# TypeScript 編譯輸出
+dist/
+build/
+*.tsbuildinfo
+
+# 環境變數 - 包含敏感資訊
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDE 和編輯器
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+
+# 日誌
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 臨時檔案
+tmp/
+temp/
+
+# 資料庫備份
+*.bak
+*.dump
+
+# 測試覆蓋率
+coverage/
+
+# 自定義資料
+/data/
