@@ -10,7 +10,7 @@ export default (client: ExtendedClient): void => {
     client.user.setPresence({
       activities: [
         {
-          name: "阿拉呱花戳戳阿拉呱胖",
+          name: "阿拉呱胖哇啦啦阿拉呱花🐷",
           type: ActivityType.Watching,
         },
       ],

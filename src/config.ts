@@ -13,9 +13,5 @@ export const config = {
   token: process.env.BOT_TOKEN,
   clientId: process.env.CLIENT_ID,
   prefix: "!",
-  geminiApiKey: process.env.GEMINI_API_KEY,
-  spotify: {
-    clientId: process.env.SPOTIFY_CLIENT_ID,
-    clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-  },
+  geminiApiKey: process.env.GEMINI_API_KEY
 };
