@@ -10,7 +10,9 @@
     "build": "prisma generate && tsc",
     "postbuild": "node -e \"require('fs').cpSync('src/generated/prisma','dist/generated/prisma',{recursive:true})\"",
     "deploy": "tsx src/deploy-commands.ts",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed:fish": "tsx src/scripts/seedFishItems.ts"
   },
   "keywords": [
     "discord",

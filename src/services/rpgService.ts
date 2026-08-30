@@ -1,7 +1,35 @@
-import { User } from "../generated/prisma";
+import { Item, User } from "../generated/prisma";
 import { randomInt } from "crypto";
 import prisma from "./dbService";
 import { ItemService } from "./itemService";
+
+const FISH_COOLDOWN_MS = 60 * 1000;
+const EMPTY_CATCH_CHANCE = 0.2;
+const EMPTY_CATCH_MESSAGES = [
+  "魚餌被偷吃了，什麼都沒釣到...",
+  "等了老半天，連個影子都沒有。",
+  "魚線斷了！這次白忙一場。",
+  "只釣到一隻舊靴子。",
+];
+
+// 稀有度權重：數字越大越常見，總和不用是 100，pickWeightedFish 會自己按比例抽
+const FISH_TABLE: { name: string; weight: number }[] = [
+  { name: "小魚乾", weight: 50 },
+  { name: "虹鱒", weight: 30 },
+  { name: "銀鱗鮭", weight: 15 },
+  { name: "深海鮟鱇魚", weight: 4 },
+  { name: "黃金鯉魚", weight: 1 },
+];
+
+function pickWeightedFish(): string {
+  const totalWeight = FISH_TABLE.reduce((sum, fish) => sum + fish.weight, 0);
+  let roll = randomInt(0, totalWeight);
+  for (const fish of FISH_TABLE) {
+    if (roll < fish.weight) return fish.name;
+    roll -= fish.weight;
+  }
+  return FISH_TABLE[0].name;
+}
 
 const DAILY_RESET_TIMEZONE = "Asia/Taipei";
 
@@ -28,6 +56,12 @@ function addDaysToDateString(dateStr: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().split("T")[0];
 }
+
+export type FishResult =
+  | { status: "not_started" }
+  | { status: "cooldown"; remainingSeconds: number }
+  | { status: "empty"; message: string }
+  | { status: "caught"; item: Item; quantity: number; xpGained: number };
 
 export type DailyClaimResult =
   | { status: "not_started" }
@@ -215,6 +249,48 @@ export class RPGService {
       goldGained,
       message,
     };
+  }
+
+  static async fish(discordUserId: string): Promise<FishResult> {
+    const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
+    if (!user) return { status: "not_started" };
+
+    if (user.lastFish) {
+      const elapsed = Date.now() - new Date(user.lastFish).getTime();
+      if (elapsed < FISH_COOLDOWN_MS) {
+        return {
+          status: "cooldown",
+          remainingSeconds: Math.ceil((FISH_COOLDOWN_MS - elapsed) / 1000),
+        };
+      }
+    }
+
+    if (Math.random() < EMPTY_CATCH_CHANCE) {
+      await prisma.user.update({ where: { id: user.id }, data: { lastFish: new Date() } });
+      return { status: "empty", message: EMPTY_CATCH_MESSAGES[randomInt(0, EMPTY_CATCH_MESSAGES.length)] };
+    }
+
+    const fishName = pickWeightedFish();
+    const item = await ItemService.findItemByName(fishName);
+    if (!item) {
+      throw new Error(`魚類資料「${fishName}」尚未建立，請先執行種子腳本 seedFishItems`);
+    }
+
+    const xpGained = randomInt(2, 6);
+
+    const [, inventory] = await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { lastFish: new Date(), xp: { increment: xpGained } },
+      }),
+      prisma.inventory.upsert({
+        where: { userId_itemId: { userId: user.id, itemId: item.id } },
+        create: { userId: user.id, itemId: item.id, quantity: 1 },
+        update: { quantity: { increment: 1 } },
+      }),
+    ]);
+
+    return { status: "caught", item, quantity: inventory.quantity, xpGained };
   }
 
   // 共用邏輯：/rpg daily 手動簽到、跳語音頻道自動簽到都呼叫這個，確保兩者行為完全一致

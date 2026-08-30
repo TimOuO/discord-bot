@@ -12,6 +12,7 @@ export const TYPE_LABELS: Record<string, string> = {
   armor: "防具",
   accessory: "飾品",
   potion: "藥水",
+  fish: "魚類",
 };
 
 export const EFFECT_TYPE_LABELS: Record<string, string> = {
@@ -19,6 +20,14 @@ export const EFFECT_TYPE_LABELS: Record<string, string> = {
   defense: "防禦力",
   maxHealth: "生命上限",
   heal: "回復生命",
+};
+
+export const RARITY_LABELS: Record<string, string> = {
+  common: "普通",
+  uncommon: "不常見",
+  rare: "稀有",
+  epic: "史詩",
+  legendary: "傳說",
 };
 
 export const SLOT_LABELS: Record<EquipSlot, string> = {
@@ -35,8 +44,12 @@ export interface EffectiveStats {
 }
 
 export class ItemService {
+  // 魚類只能靠 /rpg fish 釣，不放進商店可購買清單（見 sellItem 之後可以拿去賣）
   static async getShopCatalog(): Promise<Item[]> {
-    return prisma.item.findMany({ orderBy: [{ type: "asc" }, { cost: "asc" }] });
+    return prisma.item.findMany({
+      where: { type: { not: "fish" } },
+      orderBy: [{ type: "asc" }, { cost: "asc" }],
+    });
   }
 
   static async findItemByName(name: string): Promise<Item | null> {
@@ -82,6 +95,9 @@ export class ItemService {
   static async buyItem(userInternalId: string, itemName: string) {
     const item = await this.findItemByName(itemName);
     if (!item) throw new Error(`商店裡沒有「${itemName}」這件道具`);
+    if (item.type === "fish") {
+      throw new Error(`「${item.name}」不是商店販售的商品，要自己去 /rpg fish 釣才拿得到！`);
+    }
 
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userInternalId } });
     if (user.gold < item.cost) {

@@ -12,6 +12,7 @@ import {
   TYPE_LABELS,
   EFFECT_TYPE_LABELS,
   SLOT_LABELS,
+  RARITY_LABELS,
 } from "../services/itemService";
 
 const EQUIPPABLE_TYPES = ["weapon", "armor", "accessory"];
@@ -34,6 +35,9 @@ export default {
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("daily").setDescription("領取每日獎勵")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("fish").setDescription("到河邊釣魚，有機會釣到稀有魚類")
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -119,6 +123,8 @@ export default {
         return handleBattleCommand(interaction);
       case "daily":
         return handleDailyCommand(interaction);
+      case "fish":
+        return handleFishCommand(interaction);
       case "equip":
         return handleEquipCommand(interaction);
       case "use":
@@ -438,6 +444,37 @@ async function handleDailyCommand(interaction: ChatInputCommandInteraction) {
   } catch (error) {
     console.error("Daily command error:", error);
     return interaction.editReply("領取每日獎勵時發生錯誤，請稍後再試。");
+  }
+}
+
+async function handleFishCommand(interaction: ChatInputCommandInteraction) {
+  try {
+    await interaction.deferReply();
+
+    const result = await RPGService.fish(interaction.user.id);
+
+    if (result.status === "not_started") {
+      return interaction.editReply(
+        "你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！"
+      );
+    }
+    if (result.status === "cooldown") {
+      return interaction.editReply(
+        `🎣 魚餌還沒準備好，請等待 ${result.remainingSeconds} 秒後再釣。`
+      );
+    }
+    if (result.status === "empty") {
+      return interaction.editReply(`🎣 ${result.message}`);
+    }
+
+    const rarityLabel = RARITY_LABELS[result.item.rarity] ?? result.item.rarity;
+    return interaction.editReply(
+      `🎣 釣到了一隻「${result.item.name}」！（${rarityLabel}）目前擁有 ${result.quantity} 隻，還獲得了 ${result.xpGained} 經驗值。可以用 \`/rpg shop sell\` 賣掉換金幣。`
+    );
+  } catch (error) {
+    console.error("RPG Fish 命令錯誤:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    return interaction.editReply(`釣魚失敗：${message}`);
   }
 }
 
