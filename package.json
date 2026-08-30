@@ -7,9 +7,10 @@
     "start": "tsx src/index.ts",
     "start:prod": "node dist/index.js",
     "dev": "nodemon --exec tsx src/index.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "postbuild": "node -e \"require('fs').cpSync('src/generated/prisma','dist/generated/prisma',{recursive:true})\"",
-    "deploy": "tsx src/deploy-commands.ts"
+    "deploy": "tsx src/deploy-commands.ts",
+    "prepare": "npm run build"
   },
   "keywords": [
     "discord",
