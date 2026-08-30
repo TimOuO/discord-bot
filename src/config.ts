@@ -29,4 +29,14 @@ export const config = {
       .filter(Boolean)
       .map((pair) => pair.split(":").map((s) => s.trim()) as [string, string])
   ),
+  // 每天自動輪替語音頻道狀態文字用的頻道清單。
+  // 格式：頻道ID:詞庫名稱，逗號分隔多組；詞庫實際內容在 voiceStatusService.ts 裡設定
+  // 例如 VOICE_STATUS_CHANNELS=111:cat,222:pigsLots
+  voiceStatusChannels: new Map(
+    (process.env.VOICE_STATUS_CHANNELS ?? "")
+      .split(",")
+      .map((pair) => pair.trim())
+      .filter(Boolean)
+      .map((pair) => pair.split(":").map((s) => s.trim()) as [string, string])
+  ),
 };
