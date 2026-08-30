@@ -7,12 +7,7 @@ import { ExtendedClient } from "./structures/ExtendedClient";
 async function main() {
   // 創建擴展的 Discord 客戶端
   const client = new ExtendedClient({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.GuildMembers,
-    ],
+    intents: [GatewayIntentBits.Guilds],
   });
   try {
     registerEvents(client);
