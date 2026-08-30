@@ -2,7 +2,7 @@ import { ActivityType } from "discord.js";
 import { ExtendedClient } from "../structures/ExtendedClient";
 
 export default (client: ExtendedClient): void => {
-  client.on("ready", () => {
+  client.on("clientReady", () => {
     if (!client.user) return;
 
     console.log(`已登入為 ${client.user.tag}`);
@@ -10,7 +10,7 @@ export default (client: ExtendedClient): void => {
     client.user.setPresence({
       activities: [
         {
-          name: "阿拉呱胖哇啦啦阿拉呱花🐷",
+          name: "大胖呱🐷喵喵小肥呱🐷",
           type: ActivityType.Watching,
         },
       ],

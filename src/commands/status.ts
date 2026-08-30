@@ -4,7 +4,10 @@ import {
   ActivityType,
   MessageFlags,
 } from "discord.js";
-import type { CommandInteraction, PresenceStatusData } from "discord.js";
+import type {
+  ChatInputCommandInteraction,
+  PresenceStatusData,
+} from "discord.js";
 
 export default {
   data: new SlashCommandBuilder()
@@ -40,10 +43,10 @@ export default {
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-  async execute(interaction: CommandInteraction) {
-    const type = interaction.options.get("type")?.value as string;
-    const content = interaction.options.get("content")?.value as string;
-    const status = ((interaction.options.get("status")?.value as string) ||
+  async execute(interaction: ChatInputCommandInteraction) {
+    const type = interaction.options.getString("type", true);
+    const content = interaction.options.getString("content", true);
+    const status = (interaction.options.getString("status") ||
       "online") as PresenceStatusData;
 
     let activityType: ActivityType;

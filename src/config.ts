@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({ quiet: true });
 
 if (!process.env.BOT_TOKEN) {
   throw new Error("缺少Discord機器人Token");

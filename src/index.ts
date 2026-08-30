@@ -16,7 +16,7 @@ async function main() {
   });
   try {
     registerEvents(client);
-    await registerCommands(client);
+    registerCommands(client);
 
     await client.login(config.token);
   } catch (error) {
