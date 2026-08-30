@@ -7,7 +7,7 @@
 | 模組 | Slash 指令 | 功能摘要 |
 | --- | --- | --- |
 | RPG | `/rpg start` `/battle` `/daily` `/profile` `/inventory` `/shop` `/equip` | 放置型戰鬥、經驗、金幣、道具（已刪除 `/rank` 排名指令） |
-| Gemini AI | `/ask <prompt>` `/ai chat` | 與 Gemini 互動、支援 Thread |
+| ~~Gemini AI~~ | ~~`/ask <prompt>` `/ai chat`~~ | 已整個移除（2026-08-29 決定拔掉），不再是這個 bot 的功能範圍 |
 | 管理 / QOL | `/config <module>` `/stats` `/restart` | Owner 專用設定、健檢、錯誤 Embed |
 
 ## 2. 里程碑 & 驗收
@@ -17,7 +17,7 @@
 | S0 | 環境完成、Bot 上線 | `/help` 列出指令 |
 | M1 | RPG 核心 `/rpg start /battle` + SQLite | 重啟後資料仍在 |
 | M2 | `/daily /inventory /shop /equip`；升級公式 | 日常冷卻運作、購物能加道具 |
-| M3 | `/ask` & `/ai chat` Thread 整合 | Thread 內多輪對話正常 |
+| ~~M3~~ | ~~`/ask` & `/ai chat` Thread 整合~~ | 已移除，AI 功能不再規劃 |
 | M4 | Neon Free & GitHub Actions | `prisma migrate deploy` OK；CI 綠燈 |
 | M5 | 監控（Winston + Sentry）& Beta | 24 h 無 fatal；log 統計戰鬥次量 |
 | M6 | Release 1.0 | Docker Compose 一鍵部署 |
@@ -64,10 +64,10 @@
 
 | 里程碑 | 狀態 | 備註 |
 | --- | --- | --- |
-| S0 | ✅ | Bot 可上線；`/help` 尚未實作 |
+| S0 | ✅ | Bot 可上線；`/help` 已完成，會依實際載入的指令自動列出說明，並依權限隱藏管理員專用指令 |
 | M1 | ✅ | `/rpg start`、`/battle` + SQLite 已完成 |
 | M2 | ✅ | `/daily`、`/shop`（買/賣）、`/inventory`、`/equip`、`/use` 皆已完成，並通過端對端測試；`/battle` 已改用裝備加成後的有效屬性計算傷害 |
-| M3 | 🟡 進行中 | `/ai` 僅支援單輪問答，Thread 多輪對話尚未串接 |
+| ~~M3~~ | ❌ 已移除 | `/ai`、Gemini 服務、`@google/generative-ai` 依賴全部拔掉，`GEMINI_API_KEY` 不再是啟動必要條件 |
 | M4 | ⬜ 未開始 | 尚未設定 Neon / CI |
 | M5 | ⬜ 未開始 | 尚未加入監控 |
 | M6 | ⬜ 未開始 | `docker-compose.yml` 目前是空殼，尚無 `Dockerfile` |
