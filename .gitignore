@@ -18,6 +18,13 @@ build/
 .env.test
 .env.production
 
+# Prisma 相關
+prisma/dev.db
+prisma/dev.db-journal
+*.db
+*.db-journal
+src/generated/prisma/
+
 # IDE 和編輯器
 .vscode/
 .idea/
@@ -45,3 +52,4 @@ coverage/
 
 # 自定義資料
 /data/
+/src/generated/prisma

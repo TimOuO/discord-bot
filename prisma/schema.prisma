@@ -1,0 +1,85 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// RPG 系統: 使用者模型
+model User {
+  id            String   @id @default(uuid())
+  userId        String   @unique // Discord 使用者 ID
+  username      String
+  xp            Int      @default(0) // 經驗值
+  level         Int      @default(1) // 等級
+  gold          Int      @default(0) // 金幣
+  health        Int      @default(100) // 生命值
+  maxHealth     Int      @default(100) // 最大生命值
+  attack        Int      @default(10) // 攻擊力
+  defense       Int      @default(5) // 防禦力
+  lastBattle    DateTime? // 上次戰鬥時間
+  lastDaily     DateTime? // 上次日常簽到時間
+  loginStreak   Int      @default(0) // 連續登入天數
+  lastStreakDate String?  // 上次連續登入的日期 (YYYY-MM-DD)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // 關聯
+  inventory Inventory[]
+  equipped  EquippedItem[]
+}
+
+// 物品模型
+model Item {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  type        String // weapon, armor, potion, accessory
+  rarity      String   @default("common") // common, uncommon, rare, epic, legendary
+  cost        Int
+  effectType  String // 這個 effectValue 要加在哪個屬性上：attack, defense, maxHealth, heal
+  effectValue Int      @default(0) // 效果值 (攻擊、防禦、生命上限加成或回復量)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 關聯
+  inventory   Inventory[]
+  equippedBy  EquippedItem[]
+}
+
+// 庫存模型 (多對多關聯)
+model Inventory {
+  id        String   @id @default(uuid())
+  userId    String
+  itemId    String
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 關聯
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemId])
+}
+
+// 已裝備物品模型
+model EquippedItem {
+  id        String   @id @default(uuid())
+  userId    String
+  itemId    String
+  slot      String   // weapon, armor, accessory1, accessory2
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 關聯
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, slot])
+}
