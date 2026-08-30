@@ -3,6 +3,18 @@ import { Interaction, InteractionReplyOptions, MessageFlags } from "discord.js";
 
 export default (client: ExtendedClient): void => {
   client.on("interactionCreate", async (interaction: Interaction) => {
+    if (interaction.isAutocomplete()) {
+      const command = client.commands.get(interaction.commandName);
+      if (!command?.autocomplete) return;
+
+      try {
+        await command.autocomplete(interaction);
+      } catch (error) {
+        console.error(`處理 ${interaction.commandName} 自動完成時發生錯誤:`, error);
+      }
+      return;
+    }
+
     if (interaction.isChatInputCommand()) {
       const command = client.commands.get(interaction.commandName);
 
