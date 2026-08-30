@@ -3,6 +3,45 @@ import { randomInt } from "crypto";
 import prisma from "./dbService";
 import { ItemService } from "./itemService";
 
+const DAILY_RESET_TIMEZONE = "Asia/Taipei";
+
+function getLocalDateString(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DAILY_RESET_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+// 每日重置的邊界是台北時間 00:00，固定用 +08:00 換算，跟主機所在時區無關
+function getNextResetTime(date: Date): Date {
+  const todayStr = getLocalDateString(date);
+  const next = new Date(`${todayStr}T00:00:00+08:00`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next;
+}
+
+// 用純字串運算算「隔天」，避免用 Date 物件的 local getDate/setDate 造成時區偏移
+function addDaysToDateString(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
+export type DailyClaimResult =
+  | { status: "not_started" }
+  | { status: "already_claimed"; remainingHours: number; remainingMinutes: number }
+  | {
+      status: "claimed";
+      goldReward: number;
+      streakBonus: number;
+      finalGoldReward: number;
+      xpReward: number;
+      streak: number;
+      updatedUser: User;
+    };
+
 export class RPGService {
   static async findUserByDiscordId(userId: string): Promise<User | null> {
     return prisma.user.findUnique({ where: { userId } });
@@ -175,6 +214,88 @@ export class RPGService {
       xpGained,
       goldGained,
       message,
+    };
+  }
+
+  // 共用邏輯：/rpg daily 手動簽到、跳語音頻道自動簽到都呼叫這個，確保兩者行為完全一致
+  static async claimDaily(discordUserId: string): Promise<DailyClaimResult> {
+    const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
+    if (!user) {
+      return { status: "not_started" };
+    }
+
+    const now = new Date();
+    const lastDaily = user.lastDaily ? new Date(user.lastDaily) : null;
+    const todayString = getLocalDateString(now);
+
+    if (lastDaily) {
+      const lastDailyString = getLocalDateString(lastDaily);
+      if (lastDailyString === todayString) {
+        const tomorrow = getNextResetTime(now);
+        const remainingTime = tomorrow.getTime() - now.getTime();
+        const remainingHours = Math.floor(remainingTime / (60 * 60 * 1000));
+        const remainingMinutes = Math.floor(
+          (remainingTime % (60 * 60 * 1000)) / (60 * 1000)
+        );
+        return { status: "already_claimed", remainingHours, remainingMinutes };
+      }
+    }
+
+    const baseGold = 50;
+    const baseXP = 30;
+    const goldMultiplier = 1 + user.level * 0.1;
+    const xpMultiplier = 1 + user.level * 0.05;
+
+    const goldBonus = randomInt(0, Math.floor(user.level * 5));
+    const xpBonus = randomInt(0, Math.floor(user.level * 3));
+
+    const goldReward = Math.floor((baseGold + goldBonus) * goldMultiplier);
+    const xpReward = Math.floor((baseXP + xpBonus) * xpMultiplier);
+    let streak = user.loginStreak || 0;
+    let streakBonus = 0;
+    const currentDate = todayString;
+    const lastStreakDate = user.lastStreakDate;
+
+    if (lastStreakDate) {
+      const expectedNextDate = addDaysToDateString(lastStreakDate, 1);
+
+      if (expectedNextDate === currentDate) {
+        streak += 1;
+        if (streak % 5 === 0) {
+          streakBonus = Math.floor(streak / 5) * 20;
+        }
+      } else {
+        streak = 1;
+      }
+    } else {
+      streak = 1;
+    }
+
+    const finalGoldReward = goldReward + streakBonus;
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        gold: { increment: finalGoldReward },
+        xp: { increment: xpReward },
+        lastDaily: now,
+        health: Math.min(
+          user.health + Math.floor(user.maxHealth * 0.3),
+          user.maxHealth
+        ),
+        loginStreak: streak,
+        lastStreakDate: currentDate,
+      },
+    });
+
+    return {
+      status: "claimed",
+      goldReward,
+      streakBonus,
+      finalGoldReward,
+      xpReward,
+      streak,
+      updatedUser,
     };
   }
 }
