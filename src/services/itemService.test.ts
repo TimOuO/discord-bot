@@ -171,6 +171,51 @@ describe("ItemService.useItem", () => {
   });
 });
 
+describe("ItemService.equipItem", () => {
+  it("兩個飾品欄都滿了、沒指定要換哪一欄時，預設頂掉飾品欄 1", async () => {
+    const { user } = await createTestUser({ gold: 1000 });
+    const accA = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 5 });
+    const accB = await createTestItem({ type: "accessory", cost: 50, effectType: "defense", effectValue: 5 });
+    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 8 });
+    await ItemService.buyItem(user.id, accA.name); // 自動裝進 accessory1
+    await ItemService.buyItem(user.id, accB.name); // 自動裝進 accessory2
+    await ItemService.buyItem(user.id, accC.name); // 兩欄都滿了，不會自動裝
+
+    const result = await ItemService.equipItem(user.id, accC.name);
+
+    expect(result.slot).toBe("accessory1");
+    expect(result.replacedItem?.name).toBe(accA.name);
+  });
+
+  it("可以指定要換掉飾品欄 2，不會動到飾品欄 1", async () => {
+    const { user } = await createTestUser({ gold: 1000 });
+    const accA = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 5 });
+    const accB = await createTestItem({ type: "accessory", cost: 50, effectType: "defense", effectValue: 5 });
+    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 8 });
+    await ItemService.buyItem(user.id, accA.name); // accessory1
+    await ItemService.buyItem(user.id, accB.name); // accessory2
+    await ItemService.buyItem(user.id, accC.name); // 兩欄都滿了，不會自動裝
+
+    const result = await ItemService.equipItem(user.id, accC.name, "accessory2");
+
+    expect(result.slot).toBe("accessory2");
+    expect(result.replacedItem?.name).toBe(accB.name);
+
+    const equipped = await ItemService.getEquipped(user.id);
+    expect(equipped.find((e) => e.slot === "accessory1")?.equipped?.item.name).toBe(accA.name);
+  });
+
+  it("指定的欄位跟道具類型不相容時拒絕（例如武器指定裝到飾品欄）", async () => {
+    const { user } = await createTestUser({ gold: 1000 });
+    const weapon = await createTestItem({ type: "weapon", cost: 50, effectType: "attack", effectValue: 10 });
+    await ItemService.buyItem(user.id, weapon.name);
+
+    await expect(
+      ItemService.equipItem(user.id, weapon.name, "accessory1")
+    ).rejects.toThrow("不能裝到");
+  });
+});
+
 describe("ItemService.getEffectiveStats", () => {
   it("有效屬性 = 基礎屬性 + 已裝備道具的加成總和", async () => {
     const { user } = await createTestUser({ gold: 1000, attack: 10, defense: 5 });

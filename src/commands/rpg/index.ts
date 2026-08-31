@@ -10,6 +10,7 @@ import {
   handleInventoryPageButton,
   handleInventorySelect,
   handleInventoryEquipButton,
+  handleInventoryEquipSlotButton,
   handleInventoryUseButton,
   handleInventorySellButton,
 } from "./inventory";
@@ -35,6 +36,7 @@ export {
   handleInventoryPageButton,
   handleInventorySelect,
   handleInventoryEquipButton,
+  handleInventoryEquipSlotButton,
   handleInventoryUseButton,
   handleInventorySellButton,
   buildDailyRewardEmbed,
@@ -72,6 +74,16 @@ export default {
             .setDescription("要裝備的道具")
             .setRequired(true)
             .setAutocomplete(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("slot")
+            .setDescription("飾品欄兩格都滿了要指定換哪一格時才需要填")
+            .setRequired(false)
+            .addChoices(
+              { name: "飾品欄 1", value: "accessory1" },
+              { name: "飾品欄 2", value: "accessory2" }
+            )
         )
     )
     .addSubcommand((subcommand) =>

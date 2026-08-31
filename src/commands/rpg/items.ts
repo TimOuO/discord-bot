@@ -5,6 +5,7 @@ import {
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
 import { ItemService, SLOT_LABELS } from "../../services/itemService";
+import type { EquipSlot } from "../../services/itemService";
 
 const EQUIPPABLE_TYPES = ["weapon", "armor", "accessory"];
 
@@ -20,9 +21,11 @@ export async function handleEquipCommand(interaction: ChatInputCommandInteractio
     }
 
     const itemName = interaction.options.getString("item", true);
+    const preferredSlot = interaction.options.getString("slot") as EquipSlot | null;
     const { item, slot, replacedItem } = await ItemService.equipItem(
       user.id,
-      itemName
+      itemName,
+      preferredSlot ?? undefined
     );
 
     const slotLabel = SLOT_LABELS[slot];

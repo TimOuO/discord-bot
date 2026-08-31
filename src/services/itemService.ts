@@ -295,7 +295,9 @@ export class ItemService {
     return { item, healedAmount, newHealth, maxHealth: effectiveStats.maxHealth };
   }
 
-  static async equipItem(userInternalId: string, itemName: string) {
+  // preferredSlot 給飾品指定要換掉 accessory1 還是 accessory2；不指定時維持原本「優先塞空格，
+  // 兩格都滿了預設頂掉 accessory1」的自動邏輯（武器/防具本來就只有一個對應欄位，不受這個參數影響）
+  static async equipItem(userInternalId: string, itemName: string, preferredSlot?: EquipSlot) {
     const item = await this.findItemByName(itemName);
     if (!item) throw new Error(`「${itemName}」不是有效的道具名稱`);
     if (!EQUIPPABLE_TYPES.includes(item.type)) {
@@ -316,8 +318,19 @@ export class ItemService {
       (row) => row.itemId === item.id
     ).length;
 
+    const validSlotsForType: Record<string, EquipSlot[]> = {
+      weapon: ["weapon"],
+      armor: ["armor"],
+      accessory: ["accessory1", "accessory2"],
+    };
+
     let targetSlot: EquipSlot;
-    if (item.type === "weapon") {
+    if (preferredSlot) {
+      if (!validSlotsForType[item.type]?.includes(preferredSlot)) {
+        throw new Error(`「${item.name}」不能裝到${SLOT_LABELS[preferredSlot]}`);
+      }
+      targetSlot = preferredSlot;
+    } else if (item.type === "weapon") {
       targetSlot = "weapon";
     } else if (item.type === "armor") {
       targetSlot = "armor";

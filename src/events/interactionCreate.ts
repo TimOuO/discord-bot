@@ -14,6 +14,7 @@ import {
   handleInventoryPageButton,
   handleInventorySelect,
   handleInventoryEquipButton,
+  handleInventoryEquipSlotButton,
   handleInventoryUseButton,
   handleInventorySellButton,
 } from "../commands/rpg";
@@ -26,6 +27,7 @@ const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promis
   shop_sell_all: handleShopSellAllButton,
   inv_page: handleInventoryPageButton,
   inv_equip: handleInventoryEquipButton,
+  inv_equip_slot: handleInventoryEquipSlotButton,
   inv_use: handleInventoryUseButton,
   inv_sell: handleInventorySellButton,
 };

@@ -12,11 +12,11 @@ import {
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
 import { ItemService, TYPE_EMOJIS, SLOT_LABELS } from "../../services/itemService";
+import type { EquipSlot } from "../../services/itemService";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 
 const PAGE_SIZE = 10;
-const EQUIPPABLE_TYPES = ["weapon", "armor", "accessory"];
 
 type InventoryView = {
   embeds: EmbedBuilder[];
@@ -29,7 +29,8 @@ async function buildInventoryView(
   ownerId: string,
   page: number,
   username: string,
-  avatarURL: string
+  avatarURL: string,
+  selectedItemName?: string
 ): Promise<InventoryView> {
   const user = await RPGService.findUserByDiscordId(discordUserId);
   if (!user) {
@@ -112,6 +113,8 @@ async function buildInventoryView(
       pageItems.map((row) => ({
         label: `${row.item.name} x${row.quantity}`,
         value: row.item.name,
+        // 選單重繪時要標記目前選的是哪個，不然畫面會跳回「未選擇」，看不出下面的按鈕是對哪個道具生效
+        default: row.item.name === selectedItemName,
       }))
     );
   components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
@@ -119,15 +122,18 @@ async function buildInventoryView(
   return { embeds: [embed], components };
 }
 
-function buildItemActionRow(
+// 飾品兩欄都滿時不能悶著頭自動選一欄頂掉，要讓玩家自己指定換哪一欄，
+// 所以這裡要另外查目前的裝備狀態，跟其他分支不一樣
+async function buildItemActionRow(
+  userInternalId: string,
   ownerId: string,
   page: number,
   itemType: string,
   itemName: string
-): ActionRowBuilder<ButtonBuilder> {
+): Promise<ActionRowBuilder<ButtonBuilder>> {
   const buttons: ButtonBuilder[] = [];
 
-  if (EQUIPPABLE_TYPES.includes(itemType)) {
+  if (itemType === "weapon" || itemType === "armor") {
     buttons.push(
       new ButtonBuilder()
         .setCustomId(buildCustomId("inv_equip", ownerId, String(page), itemName))
@@ -135,6 +141,34 @@ function buildItemActionRow(
         .setEmoji("🛡️")
         .setStyle(ButtonStyle.Primary)
     );
+  } else if (itemType === "accessory") {
+    const equipped = await ItemService.getEquipped(userInternalId);
+    const slot1 = equipped.find((e) => e.slot === "accessory1")?.equipped;
+    const slot2 = equipped.find((e) => e.slot === "accessory2")?.equipped;
+
+    if (!slot1 || !slot2) {
+      // 至少一欄是空的，不會有歧義，直接用自動選擇邏輯裝上去
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId(buildCustomId("inv_equip", ownerId, String(page), itemName))
+          .setLabel("裝備")
+          .setEmoji("🛡️")
+          .setStyle(ButtonStyle.Primary)
+      );
+    } else {
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), itemName, "accessory1"))
+          .setLabel(`換掉飾品欄1（${slot1.item.name}）`)
+          .setEmoji("🛡️")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), itemName, "accessory2"))
+          .setLabel(`換掉飾品欄2（${slot2.item.name}）`)
+          .setEmoji("🛡️")
+          .setStyle(ButtonStyle.Primary)
+      );
+    }
   }
   if (itemType === "potion") {
     buttons.push(
@@ -208,11 +242,15 @@ export async function handleInventorySelect(interaction: StringSelectMenuInterac
       ownerId,
       page,
       interaction.user.username,
-      interaction.user.displayAvatarURL()
+      interaction.user.displayAvatarURL(),
+      itemName
     );
     const item = await ItemService.findItemByName(itemName);
     if (item) {
-      view.components.push(buildItemActionRow(ownerId, page, item.type, item.name));
+      const user = await RPGService.findUserByDiscordId(interaction.user.id);
+      if (user) {
+        view.components.push(await buildItemActionRow(user.id, ownerId, page, item.type, item.name));
+      }
     }
     await interaction.editReply(view);
   } catch (error) {
@@ -248,6 +286,25 @@ export async function handleInventoryEquipButton(interaction: ButtonInteraction)
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
     await ItemService.equipItem(user.id, itemName);
+    await refreshInventoryView(interaction, ownerId, page);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.followUp({ content: `裝備失敗：${message}`, flags: MessageFlags.Ephemeral });
+  }
+}
+
+// interactionCreate.ts 會把 "inv_equip_slot:*" 的按鈕點擊導到這裡；飾品兩欄都滿時，指定要換掉哪一欄
+export async function handleInventoryEquipSlotButton(interaction: ButtonInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+  const [pageStr, itemName, slot] = args;
+  const page = parseInt(pageStr, 10);
+
+  await interaction.deferUpdate();
+  try {
+    const user = await RPGService.findUserByDiscordId(interaction.user.id);
+    if (!user) throw new Error("找不到你的角色資料");
+    await ItemService.equipItem(user.id, itemName, slot as EquipSlot);
     await refreshInventoryView(interaction, ownerId, page);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
