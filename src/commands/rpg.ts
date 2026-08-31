@@ -19,6 +19,7 @@ import {
   RARITY_LABELS,
 } from "../services/itemService";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../utils/interactions";
+import { sectionField, chip } from "../utils/embeds";
 
 const EQUIPPABLE_TYPES = ["weapon", "armor", "accessory"];
 
@@ -179,20 +180,14 @@ async function handleStartCommand(interaction: ChatInputCommandInteraction) {
       .setDescription(`歡迎來到這個充滿奇幻的世界，${username}！`)
       .setColor("#3498db" as ColorResolvable)
       .addFields(
-        { name: "等級", value: `${user.level}`, inline: true },
-        {
-          name: "經驗值",
-          value: `${user.xp}/${xpThresholdForLevel(user.level)}`,
-          inline: true,
-        },
-        { name: "金幣", value: `${user.gold}`, inline: true },
-        {
-          name: "生命值",
-          value: `${user.health}/${user.maxHealth}`,
-          inline: true,
-        },
-        { name: "攻擊力", value: `${user.attack}`, inline: true },
-        { name: "防禦力", value: `${user.defense}`, inline: true }
+        sectionField("📊", "初始屬性", [
+          `等級 ${chip(user.level)}`,
+          `經驗值 ${chip(user.xp)} / ${chip(xpThresholdForLevel(user.level))}`,
+          `金幣 ${chip(user.gold)}`,
+          `生命值 ${chip(user.health)} / ${chip(user.maxHealth)}`,
+          `攻擊力 ${chip(user.attack)}`,
+          `防禦力 ${chip(user.defense)}`,
+        ])
       )
       .setFooter({ text: "使用 /rpg battle 開始戰鬥，/rpg daily 領取每日獎勵" });
 
@@ -220,42 +215,32 @@ async function handleProfileCommand(interaction: ChatInputCommandInteraction) {
     });
 
     const embed = new EmbedBuilder()
+      .setAuthor({ name: username, iconURL: interaction.user.displayAvatarURL() })
       .setTitle(`${username} 的角色資料`)
       .setColor("#2ecc71" as ColorResolvable)
       .addFields(
-        { name: "等級", value: `${user.level}`, inline: true },
-        {
-          name: "經驗值",
-          value: `${user.xp}/${xpThresholdForLevel(user.level)}`,
-          inline: true,
-        },
-        { name: "金幣", value: `${user.gold}`, inline: true },
-        {
-          name: "生命值",
-          value: `${user.health}/${effectiveStats.maxHealth}`,
-          inline: true,
-        },
-        { name: "攻擊力", value: `${effectiveStats.attack}`, inline: true },
-        { name: "防禦力", value: `${effectiveStats.defense}`, inline: true }
+        sectionField("📊", "角色狀態", [
+          `等級 ${chip(user.level)}`,
+          `經驗值 ${chip(user.xp)} / ${chip(xpThresholdForLevel(user.level))}`,
+          `金幣 ${chip(user.gold)}`,
+          `生命值 ${chip(user.health)} / ${chip(effectiveStats.maxHealth)}`,
+          `攻擊力 ${chip(effectiveStats.attack)}`,
+          `防禦力 ${chip(effectiveStats.defense)}`,
+        ])
       )
       .setFooter({
         text: `裝備加成已計入；用 /rpg inventory 查看細節・創建時間: ${user.createdAt.toLocaleDateString()}`,
       });
 
+    const historyLines: string[] = [];
     if (user.lastBattle) {
-      embed.addFields({
-        name: "上次戰鬥",
-        value: `${new Date(user.lastBattle).toLocaleString()}`,
-        inline: true,
-      });
+      historyLines.push(`上次戰鬥 ${chip(new Date(user.lastBattle).toLocaleString())}`);
     }
-
     if (user.lastDaily) {
-      embed.addFields({
-        name: "上次簽到",
-        value: `${new Date(user.lastDaily).toLocaleString()}`,
-        inline: true,
-      });
+      historyLines.push(`上次簽到 ${chip(new Date(user.lastDaily).toLocaleString())}`);
+    }
+    if (historyLines.length > 0) {
+      embed.addFields(sectionField("🕒", "時間紀錄", historyLines));
     }
 
     return interaction.editReply({ embeds: [embed] });
@@ -292,23 +277,31 @@ async function handleInventoryCommand(interaction: ChatInputCommandInteraction) 
     );
 
     const embed = new EmbedBuilder()
+      .setAuthor({
+        name: interaction.user.username,
+        iconURL: interaction.user.displayAvatarURL(),
+      })
       .setTitle(`${interaction.user.username} 的背包`)
       .setColor("#9b59b6" as ColorResolvable)
-      .addFields({
-        name: "有效屬性（基礎 + 裝備加成）",
-        value: `攻擊力 ${effectiveStats.attack}（基礎 ${user.attack}）\n防禦力 ${effectiveStats.defense}（基礎 ${user.defense}）\n生命上限 ${effectiveStats.maxHealth}（基礎 ${user.maxHealth}）`,
-      })
-      .addFields({
-        name: "裝備欄",
-        value: equipped
-          .map(({ slot, equipped: eq }) =>
+      .addFields(
+        sectionField("📊", "有效屬性（基礎 + 裝備加成）", [
+          `攻擊力 ${chip(effectiveStats.attack)}（基礎 ${chip(user.attack)}）`,
+          `防禦力 ${chip(effectiveStats.defense)}（基礎 ${chip(user.defense)}）`,
+          `生命上限 ${chip(effectiveStats.maxHealth)}（基礎 ${chip(user.maxHealth)}）`,
+        ]),
+        sectionField(
+          "🎒",
+          "裝備欄",
+          equipped.map(({ slot, equipped: eq }) =>
             eq ? `${SLOT_LABELS[slot]}：${eq.item.name}` : `${SLOT_LABELS[slot]}：（空）`
           )
-          .join("\n"),
-      });
+        )
+      );
 
     if (inventory.length === 0) {
-      embed.addFields({ name: "道具", value: "背包是空的，去 `/rpg shop list` 逛逛吧！" });
+      embed.addFields(
+        sectionField("🧳", "道具", ["背包是空的，去 `/rpg shop list` 逛逛吧！"])
+      );
     } else {
       for (const type of Object.keys(TYPE_LABELS)) {
         const itemsOfType = inventory.filter((row) => row.item.type === type);
@@ -316,9 +309,9 @@ async function handleInventoryCommand(interaction: ChatInputCommandInteraction) 
 
         const lines = itemsOfType.map((row) => {
           const equippedTag = equippedItemIds.has(row.itemId) ? "（裝備中）" : "";
-          return `${row.item.name} x${row.quantity}${equippedTag}`;
+          return `${row.item.name} x${chip(row.quantity)}${equippedTag}`;
         });
-        embed.addFields({ name: TYPE_LABELS[type], value: lines.join("\n") });
+        embed.addFields(sectionField("🧳", TYPE_LABELS[type], lines));
       }
     }
 
@@ -350,21 +343,15 @@ async function runBattleAndBuildReply(userId: string, username: string, avatarUR
   const embed = new EmbedBuilder()
     .setAuthor({ name: username, iconURL: avatarURL })
     .setTitle(`⚔️ ${username} vs ${battleResult.enemyName} Lv.${battleResult.enemyLevel}`)
-    .setDescription(battleResult.message)
     .setColor(color as ColorResolvable)
     .addFields(
-      {
-        name: "你的生命值",
-        value: `${battleResult.user.health}/${battleResult.user.maxHealth}`,
-        inline: true,
-      },
-      { name: "等級", value: `${battleResult.user.level}`, inline: true },
-      {
-        name: "經驗值",
-        value: `${battleResult.user.xp}/${xpThresholdForLevel(battleResult.user.level)}`,
-        inline: true,
-      },
-      { name: "金幣", value: `${battleResult.user.gold}`, inline: true }
+      sectionField("⚔️", "戰鬥結果", [battleResult.message]),
+      sectionField("📊", "目前狀態", [
+        `生命值 ${chip(battleResult.user.health)} / ${chip(battleResult.user.maxHealth)}`,
+        `等級 ${chip(battleResult.user.level)}`,
+        `經驗值 ${chip(battleResult.user.xp)} / ${chip(xpThresholdForLevel(battleResult.user.level))}`,
+        `金幣 ${chip(battleResult.user.gold)}`,
+      ])
     );
 
   embed.setFooter({ text: battleResult.result === "win" ? "恭喜獲勝！" : "不幸失敗，休息一下再來吧！" });
@@ -423,23 +410,16 @@ export function buildDailyRewardEmbed(
 
   const embed = new EmbedBuilder()
     .setTitle("🎁 每日獎勵")
-    .setDescription(`${username}，你已成功領取今日獎勵！`)
     .setColor("#f1c40f" as ColorResolvable)
     .addFields(
-      {
-        name: "獲得金幣",
-        value:
-          streakBonus > 0
-            ? `${goldReward} + ${streakBonus} (連續獎勵) = ${finalGoldReward} 💰`
-            : `${finalGoldReward} 💰`,
-        inline: true,
-      },
-      { name: "獲得經驗", value: `${xpReward} ✨`, inline: true },
-      {
-        name: "生命值恢復",
-        value: `${updatedUser.health}/${updatedUser.maxHealth} ❤️`,
-        inline: true,
-      }
+      sectionField("🎁", "簽到獎勵", [
+        `${username}，你已成功領取今日獎勵！`,
+        streakBonus > 0
+          ? `獲得金幣 ${chip(goldReward)} + ${chip(streakBonus)}（連續獎勵）= ${chip(finalGoldReward)} 💰`
+          : `獲得金幣 ${chip(finalGoldReward)} 💰`,
+        `獲得經驗 ${chip(xpReward)} ✨`,
+        `生命值恢復 ${chip(updatedUser.health)} / ${chip(updatedUser.maxHealth)} ❤️`,
+      ])
     );
 
   if (streak >= 30) {
@@ -521,12 +501,13 @@ async function handleFishCommand(interaction: ChatInputCommandInteraction) {
         iconURL: interaction.user.displayAvatarURL(),
       })
       .setTitle("🎣 釣魚成功！")
-      .setDescription(`釣到了一隻「${result.item.name}」！`)
       .setColor("#3498db" as ColorResolvable)
       .addFields(
-        { name: "稀有度", value: rarityLabel, inline: true },
-        { name: "目前擁有", value: `${result.quantity} 隻`, inline: true },
-        { name: "獲得經驗", value: `${result.xpGained} ✨`, inline: true }
+        sectionField("🎣", "釣魚結果", [
+          `釣到了一隻 \`${result.item.name}\`（${rarityLabel}）`,
+          `目前擁有 ${chip(result.quantity)} 隻`,
+          `獲得經驗 ${chip(result.xpGained)} ✨`,
+        ])
       );
 
     return interaction.editReply({
@@ -680,10 +661,10 @@ async function handleShopList(interaction: ChatInputCommandInteraction) {
 
     const lines = itemsOfType.map((item) => {
       const effectLabel = EFFECT_TYPE_LABELS[item.effectType] ?? item.effectType;
-      return `**${item.name}** — ${item.cost} 金幣（${effectLabel} +${item.effectValue}）\n${item.description}`;
+      return `**${item.name}** — ${chip(item.cost)} 金幣（${effectLabel} +${chip(item.effectValue)}）${item.description}`;
     });
 
-    embed.addFields({ name: TYPE_LABELS[type], value: lines.join("\n\n") });
+    embed.addFields(sectionField("🛒", TYPE_LABELS[type], lines));
   }
 
   return interaction.reply({ embeds: [embed] });
