@@ -19,6 +19,8 @@ export const config = {
   prefix: "!",
   // messageCreate.ts 的關鍵字彩蛋只對這位使用者觸發；沒設定就整個功能不生效
   messageTriggerUserId: process.env.MESSAGE_TRIGGER_USER_ID,
+  // 關鍵字彩蛋只在這個伺服器生效，不會被同一位使用者帶到其他伺服器（或 DM）觸發；沒設定就整個功能不生效
+  messageTriggerGuildId: process.env.MESSAGE_TRIGGER_GUILD_ID,
   // 每日資料庫備份要私訊給誰；沒設定就不會備份
   backupDmUserId: process.env.BACKUP_DM_USER_ID,
   // 有人跳進語音頻道、自動簽到成功時，公告要發到哪個頻道。

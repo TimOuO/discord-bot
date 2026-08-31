@@ -3,8 +3,10 @@ import { randomInt } from "crypto";
 import { config } from "../config";
 import { ExtendedClient } from "../structures/ExtendedClient";
 
-// 只有這位使用者發的訊息會觸發下面的關鍵字回應；沒設定 MESSAGE_TRIGGER_USER_ID 就整個不觸發
+// 只有這位使用者、在這個伺服器發的訊息才會觸發下面的關鍵字回應；
+// 沒設定 MESSAGE_TRIGGER_USER_ID / MESSAGE_TRIGGER_GUILD_ID 就整個不觸發，同一位使用者在其他伺服器或 DM 講也不會觸發
 const TRIGGER_USER_ID = config.messageTriggerUserId;
+const TRIGGER_GUILD_ID = config.messageTriggerGuildId;
 const fat = `<@${TRIGGER_USER_ID}>`;
 
 type SendText = string | ((message: Message) => string);
@@ -280,6 +282,7 @@ export default (client: ExtendedClient): void => {
   client.on("messageCreate", async (message: Message) => {
     if (message.author.bot) return;
     if (message.author.id !== TRIGGER_USER_ID) return;
+    if (message.guild?.id !== TRIGGER_GUILD_ID) return;
 
     const content = message.content;
     const lower = content.toLowerCase();
