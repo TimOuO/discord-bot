@@ -79,17 +79,43 @@ export async function handleCraftCommand(interaction: ChatInputCommandInteractio
   }
 }
 
+// 材料「現有/需要」逐項比對，回傳整體能不能鍛造，跟每項材料的 have/need 文字；
+// 清單頁的卡片、自動完成的下拉建議都共用同一份判斷邏輯，不用各寫一次容易兜不起來
+function getRecipeStatus(
+  item: Item,
+  ownedByName: Map<string, number>
+): { canCraft: boolean; parts: string[] } {
+  const recipe = (item.recipe as unknown as RecipeIngredient[]) ?? [];
+  let canCraft = true;
+  const parts = recipe.map((ingredient) => {
+    const owned = ownedByName.get(ingredient.itemName) ?? 0;
+    const ok = owned >= ingredient.quantity;
+    if (!ok) canCraft = false;
+    return `${ingredient.itemName}${owned}/${ingredient.quantity}${ok ? "✅" : "❌"}`;
+  });
+  return { canCraft, parts };
+}
+
+async function getOwnedByName(discordUserId: string): Promise<Map<string, number>> {
+  const user = await RPGService.findUserByDiscordId(discordUserId);
+  if (!user) return new Map();
+  const inventory = await ItemService.getInventory(user.id);
+  return new Map(inventory.map((row) => [row.item.name, row.quantity]));
+}
+
+// 自動完成的下拉選單直接標出材料夠不夠，不用先送出指令才知道能不能做
 export async function craftAutocomplete(interaction: AutocompleteInteraction) {
   const focused = interaction.options.getFocused().trim();
   const items = await ItemService.getCraftableCatalog();
   const filtered = items.filter((item) => item.name.includes(focused)).slice(0, 25);
+  const ownedByName = await getOwnedByName(interaction.user.id);
 
   return interaction.respond(
     filtered.map((item) => {
-      const recipe = (item.recipe as unknown as RecipeIngredient[]) ?? [];
-      const recipeSummary = recipe.map((ingredient) => `${ingredient.quantity}x${ingredient.itemName}`).join("、");
+      const { canCraft, parts } = getRecipeStatus(item, ownedByName);
+      const statusEmoji = canCraft ? "✅" : "❌";
       return {
-        name: `${item.name}（${recipeSummary}）`.slice(0, 100),
+        name: `${statusEmoji} ${item.name}（${parts.join("、")}）`.slice(0, 100),
         value: item.name,
       };
     })
@@ -103,25 +129,17 @@ type CraftListView = {
 
 // 每個配方旁邊直接列出材料「現有/需要」跟 ✅/❌，不用先鍛造一次才知道自己缺什麼
 function formatRecipeLine(item: Item, ownedByName: Map<string, number>): string {
-  const recipe = (item.recipe as unknown as RecipeIngredient[]) ?? [];
   const rarityLabel = RARITY_LABELS[item.rarity] ?? item.rarity;
   const effects = [formatEffectValue(item.effectType, item.effectValue)];
   if (item.effectType2 && item.effectValue2 != null) {
     effects.push(formatEffectValue(item.effectType2, item.effectValue2));
   }
 
-  let canCraft = true;
-  const ingredientParts = recipe.map((ingredient) => {
-    const owned = ownedByName.get(ingredient.itemName) ?? 0;
-    const ok = owned >= ingredient.quantity;
-    if (!ok) canCraft = false;
-    return `${ingredient.itemName} ${owned}/${ingredient.quantity}${ok ? "✅" : "❌"}`;
-  });
-
+  const { canCraft, parts } = getRecipeStatus(item, ownedByName);
   const statusEmoji = canCraft ? "✅" : "❌";
   return [
     `${statusEmoji} **${item.name}**（${rarityLabel}・${effects.join("、")}）`,
-    `　需要：${ingredientParts.join("、")}`,
+    `　需要：${parts.join("、")}`,
   ].join("\n");
 }
 
@@ -134,9 +152,7 @@ async function buildCraftListView(
   selectedItemName?: string
 ): Promise<CraftListView> {
   const items = await ItemService.getCraftableCatalog();
-  const user = await RPGService.findUserByDiscordId(discordUserId);
-  const inventory = user ? await ItemService.getInventory(user.id) : [];
-  const ownedByName = new Map(inventory.map((row) => [row.item.name, row.quantity]));
+  const ownedByName = await getOwnedByName(discordUserId);
 
   const embed = new EmbedBuilder()
     .setTitle("🔨 鍛造配方")
