@@ -4,7 +4,7 @@ import prisma from "./dbService";
 export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2"] as const;
 export type EquipSlot = (typeof EQUIP_SLOTS)[number];
 
-const EQUIPPABLE_TYPES: readonly string[] = ["weapon", "armor", "accessory"];
+export const EQUIPPABLE_TYPES: readonly string[] = ["weapon", "armor", "accessory"];
 // 商店買得到的道具賣掉打五折（正常經濟消耗）；釣到的魚沒有商店售價可言，
 // Item.cost 對魚類來說只是「參考價值」不是玩家真的付過的錢，所以賣魚不打折
 const NON_PURCHASABLE_TYPES: readonly string[] = ["fish"];

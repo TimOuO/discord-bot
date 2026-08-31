@@ -13,16 +13,22 @@ import { ItemService, RARITY_LABELS } from "../../services/itemService";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 import { chip } from "../../utils/embeds";
 
-function buildFishSellRow(ownerId: string, itemName: string): ActionRowBuilder<ButtonBuilder> {
+// 按鈕上直接標金額，不用點下去才知道賣了多少錢（跟 shop sell 的「全部賣掉」按鈕同樣的道理）
+function buildFishSellRow(
+  ownerId: string,
+  itemName: string,
+  unitPrice: number,
+  quantity: number
+): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(buildCustomId("fish_sell", ownerId, itemName))
-      .setLabel("立即賣掉")
+      .setLabel(`立即賣掉（${unitPrice} 金幣）`)
       .setEmoji("💰")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(buildCustomId("fish_sell_all", ownerId, itemName))
-      .setLabel("全部賣掉")
+      .setLabel(`全部賣掉（${quantity} 隻・${unitPrice * quantity} 金幣）`)
       .setEmoji("💰")
       .setStyle(ButtonStyle.Secondary)
   );
@@ -64,9 +70,10 @@ export async function handleFishCommand(interaction: ChatInputCommandInteraction
         ].join("\n")
       );
 
+    const unitPrice = ItemService.getSellPricePerUnit(result.item);
     return interaction.editReply({
       embeds: [embed],
-      components: [buildFishSellRow(interaction.user.id, result.item.name)],
+      components: [buildFishSellRow(interaction.user.id, result.item.name, unitPrice, result.quantity)],
     });
   } catch (error) {
     console.error("RPG Fish 命令錯誤:", error);

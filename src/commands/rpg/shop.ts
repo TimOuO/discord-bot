@@ -15,7 +15,7 @@ import {
   TYPE_LABELS,
   TYPE_EMOJIS,
   EFFECT_TYPE_LABELS,
-  SLOT_LABELS,
+  SLOT_GROUP_LABELS,
 } from "../../services/itemService";
 import type { Item } from "../../generated/prisma";
 import { sectionField, chip } from "../../utils/embeds";
@@ -62,7 +62,7 @@ export async function handleShopBuy(interaction: ChatInputCommandInteraction) {
     );
 
     const equipNote = autoEquippedSlot
-      ? `，並自動裝備到${SLOT_LABELS[autoEquippedSlot]}欄！`
+      ? `，並自動裝備為${SLOT_GROUP_LABELS[autoEquippedSlot]}！`
       : "";
 
     return interaction.editReply(

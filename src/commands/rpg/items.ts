@@ -4,10 +4,8 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, SLOT_GROUP_LABELS } from "../../services/itemService";
+import { ItemService, SLOT_GROUP_LABELS, EQUIPPABLE_TYPES } from "../../services/itemService";
 import type { EquipSlot } from "../../services/itemService";
-
-const EQUIPPABLE_TYPES = ["weapon", "armor", "accessory"];
 
 export async function handleEquipCommand(interaction: ChatInputCommandInteraction) {
   try {
