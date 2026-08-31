@@ -1,5 +1,16 @@
 import { ExtendedClient } from "../structures/ExtendedClient";
-import { Interaction, InteractionReplyOptions, MessageFlags } from "discord.js";
+import {
+  ButtonInteraction,
+  Interaction,
+  InteractionReplyOptions,
+  MessageFlags,
+} from "discord.js";
+import { handleBattleRematchButton } from "../commands/rpg";
+
+// customId 前綴對應到的按鈕處理函式；新增按鈕時在這裡註冊就好
+const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promise<void>> = {
+  battle_rematch: handleBattleRematchButton,
+};
 
 export default (client: ExtendedClient): void => {
   client.on("interactionCreate", async (interaction: Interaction) => {
@@ -11,6 +22,19 @@ export default (client: ExtendedClient): void => {
         await command.autocomplete(interaction);
       } catch (error) {
         console.error(`處理 ${interaction.commandName} 自動完成時發生錯誤:`, error);
+      }
+      return;
+    }
+
+    if (interaction.isButton()) {
+      const prefix = interaction.customId.split(":")[0];
+      const handler = BUTTON_HANDLERS[prefix];
+      if (!handler) return;
+
+      try {
+        await handler(interaction);
+      } catch (error) {
+        console.error(`處理按鈕 ${interaction.customId} 時發生錯誤:`, error);
       }
       return;
     }

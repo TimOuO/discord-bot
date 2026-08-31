@@ -2,6 +2,10 @@ import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
   AutocompleteInteraction,
+  ButtonInteraction,
+  ButtonBuilder,
+  ButtonStyle,
+  ActionRowBuilder,
   EmbedBuilder,
   ColorResolvable,
   MessageFlags,
@@ -14,6 +18,7 @@ import {
   SLOT_LABELS,
   RARITY_LABELS,
 } from "../services/itemService";
+import { parseCustomId, requireInteractionOwner } from "../utils/interactions";
 
 const EQUIPPABLE_TYPES = ["weapon", "armor", "accessory"];
 
@@ -327,45 +332,57 @@ async function handleInventoryCommand(interaction: ChatInputCommandInteraction) 
   }
 }
 
+function buildBattleRematchRow(ownerId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`battle_rematch:${ownerId}`)
+      .setLabel("再戰一次")
+      .setEmoji("⚔️")
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
+// /rpg battle 首次執行、跟「再戰一次」按鈕都呼叫這個，確保卡片長得一模一樣
+async function runBattleAndBuildReply(userId: string, username: string, avatarURL: string) {
+  const battleResult = await RPGService.battle(userId);
+  const color = battleResult.result === "win" ? "#2ecc71" : "#e74c3c";
+
+  const embed = new EmbedBuilder()
+    .setAuthor({ name: username, iconURL: avatarURL })
+    .setTitle(`⚔️ ${username} vs ${battleResult.enemyName} Lv.${battleResult.enemyLevel}`)
+    .setDescription(battleResult.message)
+    .setColor(color as ColorResolvable)
+    .addFields(
+      {
+        name: "你的生命值",
+        value: `${battleResult.user.health}/${battleResult.user.maxHealth}`,
+        inline: true,
+      },
+      { name: "等級", value: `${battleResult.user.level}`, inline: true },
+      {
+        name: "經驗值",
+        value: `${battleResult.user.xp}/${xpThresholdForLevel(battleResult.user.level)}`,
+        inline: true,
+      },
+      { name: "金幣", value: `${battleResult.user.gold}`, inline: true }
+    );
+
+  embed.setFooter({ text: battleResult.result === "win" ? "恭喜獲勝！" : "不幸失敗，休息一下再來吧！" });
+
+  return { embeds: [embed], components: [buildBattleRematchRow(userId)] };
+}
+
 async function handleBattleCommand(interaction: ChatInputCommandInteraction) {
   try {
     await interaction.deferReply();
 
-    const userId = interaction.user.id;
-
     try {
-      const battleResult = await RPGService.battle(userId);
-
-      const color = battleResult.result === "win" ? "#2ecc71" : "#e74c3c";
-
-      const embed = new EmbedBuilder()
-        .setTitle(
-          `⚔️ ${interaction.user.username} vs ${battleResult.enemyName} Lv.${battleResult.enemyLevel}`
-        )
-        .setDescription(battleResult.message)
-        .setColor(color as ColorResolvable)
-        .addFields(
-          {
-            name: "你的生命值",
-            value: `${battleResult.user.health}/${battleResult.user.maxHealth}`,
-            inline: true,
-          },
-          { name: "等級", value: `${battleResult.user.level}`, inline: true },
-          {
-            name: "經驗值",
-            value: `${battleResult.user.xp}/${xpThresholdForLevel(battleResult.user.level)}`,
-            inline: true,
-          },
-          { name: "金幣", value: `${battleResult.user.gold}`, inline: true }
-        );
-
-      if (battleResult.result === "win") {
-        embed.setFooter({ text: "恭喜獲勝！" });
-      } else {
-        embed.setFooter({ text: "不幸失敗，休息一下再來吧！" });
-      }
-
-      return interaction.editReply({ embeds: [embed] });
+      const payload = await runBattleAndBuildReply(
+        interaction.user.id,
+        interaction.user.username,
+        interaction.user.displayAvatarURL()
+      );
+      return interaction.editReply(payload);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return interaction.editReply(message);
@@ -374,6 +391,26 @@ async function handleBattleCommand(interaction: ChatInputCommandInteraction) {
     console.error("Battle 命令錯誤:", error);
     const message = error instanceof Error ? error.message : String(error);
     return interaction.editReply(`戰鬥失敗: ${message}`);
+  }
+}
+
+// interactionCreate.ts 會把 "battle_rematch:*" 的按鈕點擊導到這裡
+export async function handleBattleRematchButton(interaction: ButtonInteraction) {
+  const { ownerId } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+
+  await interaction.deferUpdate();
+  try {
+    const payload = await runBattleAndBuildReply(
+      interaction.user.id,
+      interaction.user.username,
+      interaction.user.displayAvatarURL()
+    );
+    await interaction.editReply(payload);
+  } catch (error) {
+    // 失敗（例如冷卻中）不動原本的卡片，只用 ephemeral 訊息提示，按鈕還能再點
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
 }
 
