@@ -11,7 +11,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, TYPE_EMOJIS, EFFECT_TYPE_LABELS } from "../../services/itemService";
+import { ItemService, TYPE_EMOJIS, formatEffectValue } from "../../services/itemService";
 import type { EquipSlot } from "../../services/itemService";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
@@ -23,10 +23,20 @@ type InventoryView = {
   components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[];
 };
 
-// 每件裝備旁邊直接標出它加了什麼數值，不用另外去換算「有效屬性」總和是怎麼來的
-function formatEquippedItem(item: { name: string; effectType: string; effectValue: number }): string {
-  const effectLabel = EFFECT_TYPE_LABELS[item.effectType] ?? item.effectType;
-  return `${item.name}（${effectLabel} +${item.effectValue}）`;
+// 每件裝備旁邊直接標出它加了什麼數值，不用另外去換算「有效屬性」總和是怎麼來的；
+// 神話級鍛造裝備有第二種效果（effectType2/effectValue2）時一併列出
+function formatEquippedItem(item: {
+  name: string;
+  effectType: string;
+  effectValue: number;
+  effectType2?: string | null;
+  effectValue2?: number | null;
+}): string {
+  const effects = [formatEffectValue(item.effectType, item.effectValue)];
+  if (item.effectType2 && item.effectValue2 != null) {
+    effects.push(formatEffectValue(item.effectType2, item.effectValue2));
+  }
+  return `${item.name}（${effects.join("、")}）`;
 }
 
 // 不用記憶體存分頁狀態，customId 直接帶頁碼，資料每次都即時查，機器人重啟也不會讓按鈕失效

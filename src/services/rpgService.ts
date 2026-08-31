@@ -214,18 +214,26 @@ export class RPGService {
 
     while (userHealth > 0 && currentEnemyHealth > 0) {
       rounds++;
-      const userDamage = Math.max(
+      let userDamage = Math.max(
         1,
         effectiveStats.attack - enemyDefense + randomInt(-2, 3)
       );
+      // 爆擊：裝備 critRate 加成的機率讓這回合傷害翻倍
+      if (randomInt(0, 100) < effectiveStats.critRate) {
+        userDamage *= 2;
+      }
       currentEnemyHealth -= userDamage;
 
       if (currentEnemyHealth > 0) {
-        const enemyDamage = Math.max(
-          1,
-          enemyAttack - effectiveStats.defense + randomInt(-2, 3)
-        );
-        userHealth -= enemyDamage;
+        // 閃避：裝備 dodgeRate 加成的機率讓這回合完全不受傷
+        const dodged = randomInt(0, 100) < effectiveStats.dodgeRate;
+        if (!dodged) {
+          const enemyDamage = Math.max(
+            1,
+            enemyAttack - effectiveStats.defense + randomInt(-2, 3)
+          );
+          userHealth -= enemyDamage;
+        }
       }
     }
 
@@ -238,8 +246,8 @@ export class RPGService {
     let effectiveMaxHealth = effectiveStats.maxHealth;
 
     if (result === "win") {
-      xpGained = 10 + enemyLevel * 5 + randomInt(1, 6);
-      goldGained = 5 + enemyLevel * 2 + randomInt(0, 5);
+      xpGained = Math.round((10 + enemyLevel * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100));
+      goldGained = Math.round((5 + enemyLevel * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100));
 
       const currentLevel = user.level;
       const newXP = user.xp + xpGained;
@@ -278,7 +286,7 @@ export class RPGService {
         },
       });
     } else {
-      xpGained = Math.max(1, Math.floor(enemyLevel * 2));
+      xpGained = Math.max(1, Math.round(enemyLevel * 2 * (1 + effectiveStats.xpBonus / 100)));
       message = `你被 ${enemyName} 擊敗了，獲得了 ${xpGained} 點經驗值作為安慰。休息一下再來挑戰吧！`;
 
       await prisma.user.update({
@@ -335,7 +343,12 @@ export class RPGService {
       throw new Error(`魚類資料「${fishName}」尚未建立，請先執行種子腳本 seedFishItems`);
     }
 
-    const xpGained = randomInt(2, 6);
+    const effectiveStats = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+    const xpGained = Math.round(randomInt(2, 6) * (1 + effectiveStats.xpBonus / 100));
 
     const [, inventory] = await prisma.$transaction([
       prisma.user.update({
@@ -380,7 +393,12 @@ export class RPGService {
       throw new Error(`材料資料「${materialName}」尚未建立，請先執行種子腳本 seedGatherItems`);
     }
 
-    const xpGained = randomInt(2, 6);
+    const effectiveStats = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+    const xpGained = Math.round(randomInt(2, 6) * (1 + effectiveStats.xpBonus / 100));
 
     const [, inventory] = await prisma.$transaction([
       prisma.user.update({
@@ -421,16 +439,27 @@ export class RPGService {
       }
     }
 
+    // 生命上限跟金幣/經驗加成都要用「有效值」（含裝備加成），提前拿到才能一起套進獎勵計算
+    const effectiveStats = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+
     const baseGold = 50;
     const baseXP = 30;
     const goldMultiplier = 1 + user.level * 0.1;
     const xpMultiplier = 1 + user.level * 0.05;
 
-    const goldBonus = randomInt(0, Math.floor(user.level * 5));
-    const xpBonus = randomInt(0, Math.floor(user.level * 3));
+    const dailyGoldRoll = randomInt(0, Math.floor(user.level * 5));
+    const dailyXpRoll = randomInt(0, Math.floor(user.level * 3));
 
-    const goldReward = Math.floor((baseGold + goldBonus) * goldMultiplier);
-    const xpReward = Math.floor((baseXP + xpBonus) * xpMultiplier);
+    const goldReward = Math.round(
+      (baseGold + dailyGoldRoll) * goldMultiplier * (1 + effectiveStats.goldBonus / 100)
+    );
+    const xpReward = Math.round(
+      (baseXP + dailyXpRoll) * xpMultiplier * (1 + effectiveStats.xpBonus / 100)
+    );
     let streak = user.loginStreak || 0;
     let streakBonus = 0;
     const currentDate = todayString;
@@ -452,14 +481,6 @@ export class RPGService {
     }
 
     const finalGoldReward = goldReward + streakBonus;
-
-    // 生命上限要用「有效值」（含裝備加成），不能只看資料庫存的基礎值，
-    // 不然裝備加生命上限的玩家，血量本來就可能高於基礎值，這裡用基礎值封頂反而會倒扣血量
-    const effectiveStats = await ItemService.getEffectiveStats(user.id, {
-      attack: user.attack,
-      defense: user.defense,
-      maxHealth: user.maxHealth,
-    });
 
     const updatedUser = await prisma.user.update({
       where: { id: user.id },

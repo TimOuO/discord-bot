@@ -1,14 +1,18 @@
-import { Item } from "../generated/prisma";
+import { Item, Prisma } from "../generated/prisma";
 import prisma from "./dbService";
 
 export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2"] as const;
 export type EquipSlot = (typeof EQUIP_SLOTS)[number];
 
 export const EQUIPPABLE_TYPES: readonly string[] = ["weapon", "armor", "accessory"];
-// 商店買得到的道具賣掉打五折（正常經濟消耗）；釣到的魚、採集的材料沒有商店售價可言，
+// 商店買得到的道具賣掉打五折（正常經濟消耗）；不能買的道具（魚、材料、鍛造裝備）沒有商店售價可言，
 // Item.cost 對它們來說只是「參考價值」不是玩家真的付過的錢，所以賣這些不打折
-const NON_PURCHASABLE_TYPES: readonly string[] = ["fish", "material"];
 const SELL_PRICE_RATIO = 0.5;
+
+export interface RecipeIngredient {
+  itemName: string;
+  quantity: number;
+}
 
 export const TYPE_LABELS: Record<string, string> = {
   weapon: "武器",
@@ -33,7 +37,20 @@ export const EFFECT_TYPE_LABELS: Record<string, string> = {
   defense: "防禦力",
   maxHealth: "生命上限",
   heal: "回復生命",
+  critRate: "爆擊率",
+  dodgeRate: "閃避率",
+  goldBonus: "金幣加成",
+  xpBonus: "經驗加成",
 };
+
+// 這幾種效果的 effectValue 代表百分比（+N%），顯示時要加 % 而不是當成純數值
+const PERCENTAGE_EFFECT_TYPES: readonly string[] = ["critRate", "dodgeRate", "goldBonus", "xpBonus"];
+
+export function formatEffectValue(type: string, value: number): string {
+  const label = EFFECT_TYPE_LABELS[type] ?? type;
+  const suffix = PERCENTAGE_EFFECT_TYPES.includes(type) ? "%" : "";
+  return `${label} +${value}${suffix}`;
+}
 
 export const RARITY_LABELS: Record<string, string> = {
   common: "普通",
@@ -41,6 +58,7 @@ export const RARITY_LABELS: Record<string, string> = {
   rare: "稀有",
   epic: "史詩",
   legendary: "傳說",
+  mythic: "神話",
 };
 
 export const SLOT_LABELS: Record<EquipSlot, string> = {
@@ -63,14 +81,32 @@ export interface EffectiveStats {
   attack: number;
   defense: number;
   maxHealth: number;
+  critRate: number; // 爆擊率，百分比（0-100）
+  dodgeRate: number; // 閃避率，百分比（0-100）
+  goldBonus: number; // 金幣加成，百分比（0-100）
+  xpBonus: number; // 經驗加成，百分比（0-100）
+}
+
+export interface BaseStats {
+  attack: number;
+  defense: number;
+  maxHealth: number;
 }
 
 export class ItemService {
-  // 魚類只能靠 /rpg fish 釣，不放進商店可購買清單（見 sellItem 之後可以拿去賣）
+  // 只有 purchasable 的道具才會出現在商店（魚/材料/鍛造裝備都不能直接買，見 sellItem 之後可以拿去賣）
   static async getShopCatalog(): Promise<Item[]> {
     return prisma.item.findMany({
-      where: { type: { notIn: [...NON_PURCHASABLE_TYPES] } },
+      where: { purchasable: true },
       orderBy: [{ type: "asc" }, { cost: "asc" }],
+    });
+  }
+
+  // 有配方的道具才能鍛造
+  static async getCraftableCatalog(): Promise<Item[]> {
+    return prisma.item.findMany({
+      where: { recipe: { not: Prisma.DbNull } },
+      orderBy: [{ cost: "asc" }],
     });
   }
 
@@ -78,9 +114,9 @@ export class ItemService {
     return prisma.item.findUnique({ where: { name } });
   }
 
-  // 每一件賣掉能拿到的金幣：商店買得到的道具打五折，釣到的魚（沒有商店售價）全額賣出
+  // 每一件賣掉能拿到的金幣：商店買得到的道具打五折，不能買的道具（沒有商店售價）全額賣出
   static getSellPricePerUnit(item: Item): number {
-    const ratio = NON_PURCHASABLE_TYPES.includes(item.type) ? 1 : SELL_PRICE_RATIO;
+    const ratio = item.purchasable ? SELL_PRICE_RATIO : 1;
     return Math.floor(item.cost * ratio);
   }
 
@@ -102,20 +138,33 @@ export class ItemService {
   }
 
   // 有效屬性 = 基礎屬性 + 目前所有已裝備道具的加成，即時計算、不寫回 User（見 docs/adr/0001）
+  // 爆擊率/閃避率/金幣加成/經驗加成沒有對應的 User 基礎欄位，一律從 0 開始、純粹來自裝備
   static async getEffectiveStats(
     userInternalId: string,
-    base: EffectiveStats
+    base: BaseStats
   ): Promise<EffectiveStats> {
     const rows = await prisma.equippedItem.findMany({
       where: { userId: userInternalId },
       include: { item: true },
     });
 
-    const result = { ...base };
+    const result: EffectiveStats = { ...base, critRate: 0, dodgeRate: 0, goldBonus: 0, xpBonus: 0 };
+    const applyEffect = (type: string, value: number) => {
+      if (type === "attack") result.attack += value;
+      else if (type === "defense") result.defense += value;
+      else if (type === "maxHealth") result.maxHealth += value;
+      else if (type === "critRate") result.critRate += value;
+      else if (type === "dodgeRate") result.dodgeRate += value;
+      else if (type === "goldBonus") result.goldBonus += value;
+      else if (type === "xpBonus") result.xpBonus += value;
+    };
+
     for (const row of rows) {
-      if (row.item.effectType === "attack") result.attack += row.item.effectValue;
-      else if (row.item.effectType === "defense") result.defense += row.item.effectValue;
-      else if (row.item.effectType === "maxHealth") result.maxHealth += row.item.effectValue;
+      applyEffect(row.item.effectType, row.item.effectValue);
+      // 神話級鍛造裝備才會有第二種效果，一般道具的 effectType2 是 null
+      if (row.item.effectType2 && row.item.effectValue2 != null) {
+        applyEffect(row.item.effectType2, row.item.effectValue2);
+      }
     }
     return result;
   }
@@ -123,11 +172,13 @@ export class ItemService {
   static async buyItem(userInternalId: string, itemName: string) {
     const item = await this.findItemByName(itemName);
     if (!item) throw new Error(`商店裡沒有「${itemName}」這件道具`);
-    if (item.type === "fish") {
-      throw new Error(`「${item.name}」不是商店販售的商品，要自己去 /rpg fish 釣才拿得到！`);
-    }
-    if (item.type === "material") {
-      throw new Error(`「${item.name}」不是商店販售的商品，要自己去 /rpg gather 採集才拿得到！`);
+    if (!item.purchasable) {
+      const hint =
+        item.type === "fish" ? "要自己去 /rpg fish 釣"
+        : item.type === "material" ? "要自己去 /rpg gather 採集"
+        : item.recipe ? "要用 /rpg craft 鍛造"
+        : "沒辦法用金幣取得";
+      throw new Error(`「${item.name}」不是商店販售的商品，${hint}才拿得到！`);
     }
 
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userInternalId } });
@@ -377,5 +428,56 @@ export class ItemService {
     });
 
     return { item, slot: targetSlot, replacedItem };
+  }
+
+  // 鍛造：扣掉配方要求的每種材料、把鍛造出來的道具加進背包，整個在一個 transaction 裡完成，
+  // 材料不夠時直接拋錯讓 transaction 自動回滾，不會扣一半材料才發現做不出來
+  static async craftItem(userInternalId: string, itemName: string) {
+    const item = await this.findItemByName(itemName);
+    if (!item) throw new Error(`「${itemName}」不是有效的道具名稱`);
+    if (!item.recipe) throw new Error(`「${item.name}」沒有配方，沒辦法鍛造`);
+
+    const ingredients = item.recipe as unknown as RecipeIngredient[];
+
+    await prisma.$transaction(async (tx) => {
+      for (const ingredient of ingredients) {
+        const ingredientItem = await tx.item.findUnique({ where: { name: ingredient.itemName } });
+        if (!ingredientItem) {
+          throw new Error(`配方設定錯誤：找不到材料「${ingredient.itemName}」`);
+        }
+
+        const inv = await tx.inventory.findUnique({
+          where: { userId_itemId: { userId: userInternalId, itemId: ingredientItem.id } },
+        });
+        const have = inv?.quantity ?? 0;
+        if (have < ingredient.quantity) {
+          throw new Error(
+            `材料不夠：「${ingredient.itemName}」還差 ${ingredient.quantity - have} 個`
+          );
+        }
+
+        if (have - ingredient.quantity <= 0) {
+          await tx.inventory.delete({ where: { id: inv!.id } });
+        } else {
+          await tx.inventory.update({
+            where: { id: inv!.id },
+            data: { quantity: { decrement: ingredient.quantity } },
+          });
+        }
+      }
+
+      await tx.inventory.upsert({
+        where: { userId_itemId: { userId: userInternalId, itemId: item.id } },
+        create: { userId: userInternalId, itemId: item.id, quantity: 1 },
+        update: { quantity: { increment: 1 } },
+      });
+    });
+
+    const inventory = await prisma.inventory.findUnique({
+      where: { userId_itemId: { userId: userInternalId, itemId: item.id } },
+    });
+
+    const autoEquipped = await this.maybeAutoEquip(userInternalId, item);
+    return { item, quantity: inventory?.quantity ?? 1, autoEquippedSlot: autoEquipped?.slot ?? null };
   }
 }

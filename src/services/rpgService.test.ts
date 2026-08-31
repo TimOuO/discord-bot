@@ -125,6 +125,52 @@ describe("RPGService.battle", () => {
 
     expect(result.effectiveMaxHealth).toBe(150); // 基礎 100 + 裝備 50
   });
+
+  it("閃避率 100% 的裝備讓玩家完全不會被打中，原本必敗的屬性也能獲勝", async () => {
+    const { discordUserId, user } = await createTestUser({
+      gold: 1000,
+      attack: 1,
+      defense: 0,
+      health: 1,
+      maxHealth: 100,
+    });
+    const accessory = await createTestItem({
+      type: "accessory",
+      cost: 100,
+      effectType: "dodgeRate",
+      effectValue: 100,
+    });
+    await ItemService.buyItem(user.id, accessory.name);
+
+    const result = await RPGService.battle(discordUserId);
+
+    // 攻擊力很低但每回合都能造成至少 1 點傷害，敵人終究會被磨死；
+    // 100% 閃避讓玩家完全不會掉血，贏了之後只會有原本就有的「+10」勝利回血，不會有任何戰鬥損血
+    expect(result.result).toBe("win");
+    expect(result.healthDelta).toBe(10);
+  });
+
+  it("金幣加成裝備存在時，戰鬥獲得的金幣要比沒有加成時可能拿到的上限還高", async () => {
+    const { discordUserId, user } = await createTestUser({
+      gold: 1000,
+      attack: 9999,
+      defense: 9999,
+    });
+    const accessory = await createTestItem({
+      type: "accessory",
+      cost: 100,
+      effectType: "goldBonus",
+      effectValue: 200,
+    });
+    await ItemService.buyItem(user.id, accessory.name);
+
+    const result = await RPGService.battle(discordUserId);
+
+    // 沒有加成時，goldGained 上限是 5 + enemyLevel(最大 2)*2 + randomInt 上限 4 = 13；
+    // +200% 加成後一定會超過這個沒加成時能拿到的最高值
+    expect(result.result).toBe("win");
+    expect(result.goldGained).toBeGreaterThan(13);
+  });
 });
 
 describe("RPGService.fish", () => {
@@ -191,6 +237,31 @@ describe("RPGService.fish", () => {
     if (second.status === "cooldown") {
       expect(second.remainingSeconds).toBeGreaterThan(0);
       expect(second.remainingSeconds).toBeLessThanOrEqual(60);
+    }
+  });
+
+  it("經驗加成裝備存在時，釣魚拿到的經驗值要比沒有加成時可能拿到的上限還高", async () => {
+    const { discordUserId, user } = await createTestUser({ gold: 1000 });
+    const accessory = await createTestItem({
+      type: "accessory",
+      cost: 100,
+      effectType: "xpBonus",
+      effectValue: 300,
+    });
+    await ItemService.buyItem(user.id, accessory.name);
+
+    // 空軍機率 5%，重試幾次直到釣到魚，避免測試因為運氣不好而不穩定
+    let result;
+    for (let i = 0; i < 30; i++) {
+      result = await RPGService.fish(discordUserId);
+      if (result.status === "caught") break;
+      await prisma.user.update({ where: { userId: discordUserId }, data: { lastFish: null } });
+    }
+
+    // 沒有加成時 xpGained 上限是 randomInt(2,6) 最大 5；+300% 加成後一定會超過這個沒加成時的最高值
+    expect(result?.status).toBe("caught");
+    if (result?.status === "caught") {
+      expect(result.xpGained).toBeGreaterThan(5);
     }
   });
 });
@@ -311,6 +382,25 @@ describe("RPGService.claimDaily", () => {
       expect(result.effectiveMaxHealth).toBe(150);
       // 修 bug 前：用基礎值 100 封頂，140 會被砍到 100，等於簽到扣血
       expect(result.updatedUser.health).toBeGreaterThanOrEqual(140);
+    }
+  });
+
+  it("金幣加成裝備存在時，簽到拿到的金幣要比沒有加成時可能拿到的上限還高", async () => {
+    const { discordUserId, user } = await createTestUser({ gold: 1000 });
+    const accessory = await createTestItem({
+      type: "accessory",
+      cost: 100,
+      effectType: "goldBonus",
+      effectValue: 100,
+    });
+    await ItemService.buyItem(user.id, accessory.name);
+
+    const result = await RPGService.claimDaily(discordUserId);
+
+    // Lv1 沒有加成時，goldReward 上限是 round((50+4)*1.1) = 59；+100% 加成後一定會超過這個上限
+    expect(result.status).toBe("claimed");
+    if (result.status === "claimed") {
+      expect(result.goldReward).toBeGreaterThan(59);
     }
   });
 });

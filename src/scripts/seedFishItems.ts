@@ -37,8 +37,9 @@ async function seedFishItems() {
           cost: fish.cost,
           effectType: "none",
           effectValue: 0,
+          purchasable: false,
         },
-        update: {},
+        update: { purchasable: false },
       });
     }
     console.log(`魚類道具種子完成（共 ${FISH_ITEMS.length} 種）`);

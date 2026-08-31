@@ -25,7 +25,13 @@ describe("ItemService.buyItem", () => {
 
   it("魚類道具不能用 buyItem 購買", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const fish = await createTestItem({ type: "fish", cost: 10, effectType: "none", effectValue: 0 });
+    const fish = await createTestItem({
+      type: "fish",
+      cost: 10,
+      effectType: "none",
+      effectValue: 0,
+      purchasable: false,
+    });
 
     await expect(ItemService.buyItem(user.id, fish.name)).rejects.toThrow("不是商店販售的商品");
   });
@@ -93,6 +99,7 @@ describe("ItemService.sellItem", () => {
       cost: 10,
       effectType: "none",
       effectValue: 0,
+      purchasable: false,
     });
     // 魚不能用 buyItem 買，直接塞進背包模擬釣到的情境
     await prisma.inventory.create({ data: { userId: user.id, itemId: fish.id, quantity: 1 } });
@@ -217,6 +224,84 @@ describe("ItemService.equipItem", () => {
   });
 });
 
+describe("ItemService.getCraftableCatalog", () => {
+  it("只回傳有配方的道具", async () => {
+    const craftable = await createTestItem({
+      recipe: [{ itemName: "隨便的材料", quantity: 1 }],
+    });
+    const notCraftable = await createTestItem();
+
+    const catalog = await ItemService.getCraftableCatalog();
+    const names = catalog.map((item) => item.name);
+
+    expect(names).toContain(craftable.name);
+    expect(names).not.toContain(notCraftable.name);
+  });
+});
+
+describe("ItemService.craftItem", () => {
+  it("材料足夠時，扣掉配方材料並把成品加進背包", async () => {
+    const { user } = await createTestUser();
+    const material = await createTestItem({ type: "material", purchasable: false });
+    await prisma.inventory.create({ data: { userId: user.id, itemId: material.id, quantity: 5 } });
+    const product = await createTestItem({
+      type: "weapon",
+      purchasable: false,
+      effectType: "attack",
+      effectValue: 50,
+      recipe: [{ itemName: material.name, quantity: 3 }],
+    });
+
+    const result = await ItemService.craftItem(user.id, product.name);
+
+    expect(result.quantity).toBe(1);
+    const inventory = await ItemService.getInventory(user.id);
+    expect(inventory.find((row) => row.itemId === material.id)?.quantity).toBe(2); // 5 - 3
+    expect(inventory.find((row) => row.itemId === product.id)?.quantity).toBe(1);
+  });
+
+  it("材料不夠時拒絕鍛造，且不能扣掉一半材料", async () => {
+    const { user } = await createTestUser();
+    const material = await createTestItem({ type: "material", purchasable: false });
+    await prisma.inventory.create({ data: { userId: user.id, itemId: material.id, quantity: 1 } });
+    const product = await createTestItem({
+      type: "weapon",
+      purchasable: false,
+      recipe: [{ itemName: material.name, quantity: 3 }],
+    });
+
+    await expect(ItemService.craftItem(user.id, product.name)).rejects.toThrow("材料不夠");
+
+    // transaction 要整個回滾，手上的材料不能被扣掉
+    const inventory = await ItemService.getInventory(user.id);
+    expect(inventory.find((row) => row.itemId === material.id)?.quantity).toBe(1);
+  });
+
+  it("道具沒有配方時拒絕鍛造", async () => {
+    const { user } = await createTestUser();
+    const item = await createTestItem();
+
+    await expect(ItemService.craftItem(user.id, item.name)).rejects.toThrow("沒有配方");
+  });
+
+  it("鍛造出武器時，空的武器欄會自動裝備", async () => {
+    const { user } = await createTestUser();
+    const material = await createTestItem({ type: "material", purchasable: false });
+    await prisma.inventory.create({ data: { userId: user.id, itemId: material.id, quantity: 1 } });
+    const weapon = await createTestItem({
+      type: "weapon",
+      purchasable: false,
+      effectType: "attack",
+      effectValue: 100,
+      recipe: [{ itemName: material.name, quantity: 1 }],
+    });
+
+    const result = await ItemService.craftItem(user.id, weapon.name);
+
+    expect(result.autoEquippedSlot).toBe("weapon");
+  });
+});
+
 describe("ItemService.getEffectiveStats", () => {
   it("有效屬性 = 基礎屬性 + 已裝備道具的加成總和", async () => {
     const { user } = await createTestUser({ gold: 1000, attack: 10, defense: 5 });
@@ -233,5 +318,53 @@ describe("ItemService.getEffectiveStats", () => {
 
     expect(stats.attack).toBe(30);
     expect(stats.defense).toBe(13);
+  });
+
+  it("爆擊率/閃避率/金幣加成/經驗加成沒有基礎值，完全來自裝備", async () => {
+    const { user } = await createTestUser({ gold: 1000 });
+    const accessory = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "critRate",
+      effectValue: 15,
+    });
+    await ItemService.buyItem(user.id, accessory.name);
+
+    const stats = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+
+    expect(stats.critRate).toBe(15);
+    expect(stats.dodgeRate).toBe(0);
+    expect(stats.goldBonus).toBe(0);
+    expect(stats.xpBonus).toBe(0);
+  });
+
+  it("神話級道具的第二種效果（effectType2/effectValue2）也要算進有效屬性", async () => {
+    const { user } = await createTestUser({ gold: 1000, attack: 10 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 100,
+      recipe: [{ itemName: "隨便的材料", quantity: 1 }],
+    });
+    // effectType2/effectValue2 不在 createTestItem 的 overrides 型別裡，直接補寫更新
+    await prisma.item.update({
+      where: { id: weapon.id },
+      data: { effectType2: "critRate", effectValue2: 20 },
+    });
+    await ItemService.buyItem(user.id, weapon.name);
+
+    const stats = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+
+    expect(stats.attack).toBe(110);
+    expect(stats.critRate).toBe(20);
   });
 });

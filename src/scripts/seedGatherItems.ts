@@ -37,8 +37,9 @@ async function seedGatherItems() {
           cost: material.cost,
           effectType: "none",
           effectValue: 0,
+          purchasable: false,
         },
-        update: {},
+        update: { purchasable: false },
       });
     }
     console.log(`採集材料種子完成（共 ${GATHER_ITEMS.length} 種）`);

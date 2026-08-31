@@ -41,11 +41,15 @@ model Item {
   id          String   @id @default(uuid())
   name        String   @unique
   description String
-  type        String // weapon, armor, potion, accessory
-  rarity      String   @default("common") // common, uncommon, rare, epic, legendary
+  type        String // weapon, armor, potion, accessory, fish, material
+  rarity      String   @default("common") // common, uncommon, rare, epic, legendary, mythic
   cost        Int
-  effectType  String // 這個 effectValue 要加在哪個屬性上：attack, defense, maxHealth, heal
-  effectValue Int      @default(0) // 效果值 (攻擊、防禦、生命上限加成或回復量)
+  effectType  String // 這個 effectValue 要加在哪個屬性上：attack, defense, maxHealth, heal, critRate, dodgeRate, goldBonus, xpBonus
+  effectValue Int      @default(0) // 效果值 (攻擊、防禦、生命上限加成或回復量；百分比類效果代表 +N%)
+  effectType2 String? // 第二種效果類型，目前只有神話級鍛造裝備會用到，一般道具是 null
+  effectValue2 Int? // 第二種效果的效果值，搭配 effectType2 一起出現
+  purchasable Boolean  @default(true) // 能不能直接用金幣在商店買；魚/材料/鍛造裝備都是 false
+  recipe      Json? // 鍛造配方，[{ "itemName": "...", "quantity": n }, ...]；沒有配方的道具是 null
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

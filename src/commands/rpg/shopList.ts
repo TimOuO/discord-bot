@@ -11,7 +11,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, TYPE_EMOJIS, EFFECT_TYPE_LABELS, SLOT_GROUP_LABELS } from "../../services/itemService";
+import { ItemService, TYPE_EMOJIS, formatEffectValue, SLOT_GROUP_LABELS } from "../../services/itemService";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 
@@ -54,8 +54,7 @@ async function buildShopListView(
 
   const lines = pageItems.map((item) => {
     const emoji = TYPE_EMOJIS[item.type] ?? "🛒";
-    const effectLabel = EFFECT_TYPE_LABELS[item.effectType] ?? item.effectType;
-    return `${emoji} **${item.name}** — ${chip(item.cost)} 金幣（${effectLabel} +${chip(item.effectValue)}）`;
+    return `${emoji} **${item.name}** — ${chip(item.cost)} 金幣（${formatEffectValue(item.effectType, item.effectValue)}）`;
   });
   embed.addFields(sectionField("🛒", `商品（第 ${clampedPage + 1}/${totalPages} 頁）`, lines));
   embed.setFooter({ text: "選單選商品後可以直接購買" });

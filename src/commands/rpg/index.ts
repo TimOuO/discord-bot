@@ -19,6 +19,7 @@ import { handleBattleCommand, handleBattleRematchButton } from "./battle";
 import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
 import { handleFishCommand, handleFishSellButton, handleFishSellAllButton } from "./fish";
 import { handleGatherCommand, handleGatherSellButton, handleGatherSellAllButton } from "./gather";
+import { handleCraftCommand, craftAutocomplete } from "./craft";
 import { handleEquipCommand, equipAutocomplete, handleUseCommand, useAutocomplete } from "./items";
 import {
   handleShopBuy,
@@ -81,6 +82,18 @@ export default {
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("gather").setDescription("採集材料，有機會採到稀有材料")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("craft")
+        .setDescription("用材料鍛造神話級裝備")
+        .addStringOption((option) =>
+          option
+            .setName("item")
+            .setDescription("要鍛造的裝備")
+            .setRequired(true)
+            .setAutocomplete(true)
+        )
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -188,6 +201,8 @@ export default {
         return handleFishCommand(interaction);
       case "gather":
         return handleGatherCommand(interaction);
+      case "craft":
+        return handleCraftCommand(interaction);
       case "equip":
         return handleEquipCommand(interaction);
       case "use":
@@ -212,6 +227,7 @@ export default {
 
     if (subcommand === "equip") return equipAutocomplete(interaction);
     if (subcommand === "use") return useAutocomplete(interaction);
+    if (subcommand === "craft") return craftAutocomplete(interaction);
     return interaction.respond([]);
   },
 };

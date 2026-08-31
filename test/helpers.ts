@@ -1,5 +1,5 @@
 import prisma from "../src/services/dbService";
-import type { Item, User } from "../src/generated/prisma";
+import type { Item, Prisma, User } from "../src/generated/prisma";
 
 let counter = 0;
 export function uniqueId(prefix: string): string {
@@ -24,8 +24,18 @@ export async function createTestUser(
 
 export async function createTestItem(
   overrides: Partial<
-    Pick<Item, "name" | "type" | "rarity" | "cost" | "effectType" | "effectValue" | "description">
-  > = {}
+    Pick<
+      Item,
+      | "name"
+      | "type"
+      | "rarity"
+      | "cost"
+      | "effectType"
+      | "effectValue"
+      | "description"
+      | "purchasable"
+    >
+  > & { recipe?: Prisma.InputJsonValue } = {}
 ): Promise<Item> {
   return prisma.item.create({
     data: {
