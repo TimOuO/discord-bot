@@ -48,6 +48,15 @@ export const SLOT_LABELS: Record<EquipSlot, string> = {
   accessory2: "飾品欄 2",
 };
 
+// 飾品欄 1/2 對玩家來說沒有實質差異（純粹是系統內部用來分開存兩件飾品），
+// 使用者看到的文字不用管是哪一欄，只需要知道「這是飾品」；武器/防具則本來就是不同東西，維持原本標籤
+export const SLOT_GROUP_LABELS: Record<EquipSlot, string> = {
+  weapon: "武器",
+  armor: "防具",
+  accessory1: "飾品",
+  accessory2: "飾品",
+};
+
 export interface EffectiveStats {
   attack: number;
   defense: number;

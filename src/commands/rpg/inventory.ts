@@ -11,7 +11,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, TYPE_EMOJIS, SLOT_LABELS } from "../../services/itemService";
+import { ItemService, TYPE_EMOJIS, EFFECT_TYPE_LABELS } from "../../services/itemService";
 import type { EquipSlot } from "../../services/itemService";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
@@ -22,6 +22,12 @@ type InventoryView = {
   embeds: EmbedBuilder[];
   components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[];
 };
+
+// 每件裝備旁邊直接標出它加了什麼數值，不用另外去換算「有效屬性」總和是怎麼來的
+function formatEquippedItem(item: { name: string; effectType: string; effectValue: number }): string {
+  const effectLabel = EFFECT_TYPE_LABELS[item.effectType] ?? item.effectType;
+  return `${item.name}（${effectLabel} +${item.effectValue}）`;
+}
 
 // 不用記憶體存分頁狀態，customId 直接帶頁碼，資料每次都即時查，機器人重啟也不會讓按鈕失效
 async function buildInventoryView(
@@ -62,13 +68,21 @@ async function buildInventoryView(
         `防禦力 ${chip(effectiveStats.defense)}（基礎 ${chip(user.defense)}）`,
         `生命上限 ${chip(effectiveStats.maxHealth)}（基礎 ${chip(user.maxHealth)}）`,
       ]),
-      sectionField(
-        "🎒",
-        "裝備欄",
-        equipped.map(({ slot, equipped: eq }) =>
-          eq ? `${SLOT_LABELS[slot]}：${eq.item.name}` : `${SLOT_LABELS[slot]}：（空）`
-        )
-      )
+      sectionField("🎒", "裝備欄", (() => {
+        const weaponEq = equipped.find((e) => e.slot === "weapon")?.equipped;
+        const armorEq = equipped.find((e) => e.slot === "armor")?.equipped;
+        // 飾品欄 1/2 對玩家來說沒有實質差異，合併成一行顯示，不用暴露內部欄位編號
+        const accessoryEqs = equipped
+          .filter((e) => e.slot === "accessory1" || e.slot === "accessory2")
+          .map((e) => e.equipped)
+          .filter((eq): eq is NonNullable<typeof eq> => eq !== null);
+
+        return [
+          `武器：${weaponEq ? formatEquippedItem(weaponEq.item) : "（空）"}`,
+          `防具：${armorEq ? formatEquippedItem(armorEq.item) : "（空）"}`,
+          `飾品：${accessoryEqs.length > 0 ? accessoryEqs.map((eq) => formatEquippedItem(eq.item)).join("、") : "（空）"}`,
+        ];
+      })())
     );
 
   const components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[] = [];
@@ -159,12 +173,12 @@ async function buildItemActionRow(
       buttons.push(
         new ButtonBuilder()
           .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), itemName, "accessory1"))
-          .setLabel(`換掉飾品欄1（${slot1.item.name}）`)
+          .setLabel(`換掉「${slot1.item.name}」`)
           .setEmoji("🛡️")
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), itemName, "accessory2"))
-          .setLabel(`換掉飾品欄2（${slot2.item.name}）`)
+          .setLabel(`換掉「${slot2.item.name}」`)
           .setEmoji("🛡️")
           .setStyle(ButtonStyle.Primary)
       );

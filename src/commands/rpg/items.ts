@@ -4,7 +4,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, SLOT_LABELS } from "../../services/itemService";
+import { ItemService, SLOT_GROUP_LABELS } from "../../services/itemService";
 import type { EquipSlot } from "../../services/itemService";
 
 const EQUIPPABLE_TYPES = ["weapon", "armor", "accessory"];
@@ -28,13 +28,13 @@ export async function handleEquipCommand(interaction: ChatInputCommandInteractio
       preferredSlot ?? undefined
     );
 
-    const slotLabel = SLOT_LABELS[slot];
+    const slotLabel = SLOT_GROUP_LABELS[slot];
     if (replacedItem) {
       return interaction.editReply(
-        `✅ ${slotLabel}欄已換成「${item.name}」（原本的「${replacedItem.name}」已卸下，還在背包裡）。`
+        `✅ ${slotLabel}已換成「${item.name}」（原本的「${replacedItem.name}」已卸下，還在背包裡）。`
       );
     }
-    return interaction.editReply(`✅ 已將「${item.name}」裝備到${slotLabel}欄。`);
+    return interaction.editReply(`✅ 已將「${item.name}」裝備為${slotLabel}。`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return interaction.editReply(`裝備失敗：${message}`);
