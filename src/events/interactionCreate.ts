@@ -1,6 +1,7 @@
 import { ExtendedClient } from "../structures/ExtendedClient";
 import {
   ButtonInteraction,
+  StringSelectMenuInteraction,
   Interaction,
   InteractionReplyOptions,
   MessageFlags,
@@ -9,6 +10,11 @@ import {
   handleBattleRematchButton,
   handleFishSellButton,
   handleShopSellAllButton,
+  handleInventoryPageButton,
+  handleInventorySelect,
+  handleInventoryEquipButton,
+  handleInventoryUseButton,
+  handleInventorySellButton,
 } from "../commands/rpg";
 
 // customId 前綴對應到的按鈕處理函式；新增按鈕時在這裡註冊就好
@@ -16,6 +22,15 @@ const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promis
   battle_rematch: handleBattleRematchButton,
   fish_sell: handleFishSellButton,
   shop_sell_all: handleShopSellAllButton,
+  inv_page: handleInventoryPageButton,
+  inv_equip: handleInventoryEquipButton,
+  inv_use: handleInventoryUseButton,
+  inv_sell: handleInventorySellButton,
+};
+
+// customId 前綴對應到的下拉選單處理函式
+const SELECT_HANDLERS: Record<string, (interaction: StringSelectMenuInteraction) => Promise<void>> = {
+  inv_select: handleInventorySelect,
 };
 
 export default (client: ExtendedClient): void => {
@@ -41,6 +56,19 @@ export default (client: ExtendedClient): void => {
         await handler(interaction);
       } catch (error) {
         console.error(`處理按鈕 ${interaction.customId} 時發生錯誤:`, error);
+      }
+      return;
+    }
+
+    if (interaction.isStringSelectMenu()) {
+      const prefix = interaction.customId.split(":")[0];
+      const handler = SELECT_HANDLERS[prefix];
+      if (!handler) return;
+
+      try {
+        await handler(interaction);
+      } catch (error) {
+        console.error(`處理選單 ${interaction.customId} 時發生錯誤:`, error);
       }
       return;
     }

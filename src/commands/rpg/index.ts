@@ -4,7 +4,15 @@ import {
   AutocompleteInteraction,
   MessageFlags,
 } from "discord.js";
-import { handleStartCommand, handleProfileCommand, handleInventoryCommand } from "./character";
+import { handleStartCommand, handleProfileCommand } from "./character";
+import {
+  handleInventoryCommand,
+  handleInventoryPageButton,
+  handleInventorySelect,
+  handleInventoryEquipButton,
+  handleInventoryUseButton,
+  handleInventorySellButton,
+} from "./inventory";
 import { handleBattleCommand, handleBattleRematchButton } from "./battle";
 import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
 import { handleFishCommand, handleFishSellButton } from "./fish";
@@ -23,6 +31,11 @@ export {
   handleBattleRematchButton,
   handleFishSellButton,
   handleShopSellAllButton,
+  handleInventoryPageButton,
+  handleInventorySelect,
+  handleInventoryEquipButton,
+  handleInventoryUseButton,
+  handleInventorySellButton,
   buildDailyRewardEmbed,
 };
 
