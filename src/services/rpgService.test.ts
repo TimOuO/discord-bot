@@ -45,6 +45,8 @@ describe("RPGService.battle", () => {
     expect(result.result).toBe("win");
     expect(result.user.gold).toBeGreaterThan(user.gold);
     expect(result.user.xp).toBeGreaterThan(user.xp);
+    // 攻擊力壓倒性領先，一擊必殺，回合數要是 1
+    expect(result.rounds).toBe(1);
   });
 
   it("屬性壓倒性落後時保證落敗，血量掉到約 30% 上限", async () => {
@@ -61,6 +63,8 @@ describe("RPGService.battle", () => {
     expect(result.user.health).toBe(30);
     // 開戰前血量是 1，結束後變 30，healthDelta 要精準反映這個差額，不能只回傳絕對值
     expect(result.healthDelta).toBe(29);
+    // 血量只有 1，敵人第一次反擊就會把玩家打死，回合數要是 1
+    expect(result.rounds).toBe(1);
   });
 
   it("戰鬥後 30 秒內再戰會被冷卻擋下", async () => {

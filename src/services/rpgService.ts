@@ -120,6 +120,7 @@ export class RPGService {
     xpGained: number;
     goldGained: number;
     healthDelta: number;
+    rounds: number;
     message: string;
   }> {
     const user = await prisma.user.findUnique({
@@ -168,8 +169,10 @@ export class RPGService {
 
     let userHealth = user.health;
     let currentEnemyHealth = enemyHealth;
+    let rounds = 0;
 
     while (userHealth > 0 && currentEnemyHealth > 0) {
+      rounds++;
       const userDamage = Math.max(
         1,
         effectiveStats.attack - enemyDefense + randomInt(-2, 3)
@@ -256,6 +259,7 @@ export class RPGService {
       xpGained,
       goldGained,
       healthDelta: updatedUser.health - user.health,
+      rounds,
       message,
     };
   }
