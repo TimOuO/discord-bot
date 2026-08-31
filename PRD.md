@@ -164,7 +164,7 @@ npm run deploy || echo "指令註冊失敗，下次部署會自動重試"   # �
 
 1. ✅ `/rpg battle` 結果加「再戰一次」按鈕（`9bb160b`）
 2. ✅ `/rpg fish` 結果加「立即賣掉」按鈕（`ccc53b3`）
-3. ⬜ `/rpg shop sell` 改成 embed + 加「全部賣掉」按鈕
+3. ✅ `/rpg shop sell` 改成 embed + 加「全部賣掉」按鈕（`c1abe22`）
 4. ⬜ `/rpg inventory` 換頁 + 選單 + 裝備/賣掉快捷操作
 5. ⬜ `/rpg shop list` 換頁 + 選單 + 購買快捷操作
 
