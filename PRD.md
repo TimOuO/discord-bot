@@ -126,16 +126,21 @@ git pull --ff-only origin main
 npm install
 npm run db:migrate        # prisma migrate deploy
 npm run db:seed:fish      # 冪等 upsert，重複跑安全
+npm run db:seed:gather    # 同上
 npm run db:seed:highTier  # 同上
+npm run db:seed:craft     # 同上
 pm2 restart dc-bot
 npm run deploy || echo "指令註冊失敗，下次部署會自動重試"   # 重新註冊 slash 指令，失敗不擋部署
 ```
 
+- **加新的種子腳本時，別忘了同步加進這份文件跟 `deploy.sh`**：`db:seed:gather` 跟 `db:seed:craft` 兩次都漏加進 `deploy.sh`，導致新道具的資料一直沒進到 production 資料庫，直到玩家回報「看不到東西」才發現、事後手動補跑。之後每加一個 `db:seed:*` 腳本，這裡跟 `deploy.sh` 要一起改。
 - `deploy.sh` 本身**不受版控**，只存在伺服器上（要改的話直接編輯後上傳，不透過 git pull 更新自己）
 - `.env`、`prisma/dev.db` 都不進 git，是當初設定機器時用 `scp` 手動傳過去的；之後這台機器上的 `dev.db` 就是唯一正本，不會再被本地端的檔案覆蓋。**`.env` 加新變數時記得要重新 `scp` 同步到伺服器**，`git pull` 不會更新它
 - **部署成功／失敗都會私訊通知**（2026-08-31 加）：`deploy.sh` 用 REST API（不需要常駐 gateway 連線）直接私訊 `BACKUP_DM_USER_ID`，成功顯示 `舊hash → 新hash`，失敗顯示卡在哪個步驟；靠 bash 的 `trap ... ERR` 攔截，跟備份用的是同一個收件人
 
 **Log 查看方式**：見第 4 節備份說明旁；指令彙整在對話紀錄裡，之後可以直接問「幫我看 log」。
+
+**多群組支援（2026-09-01 加）**：`GUILD_ID`、`DAILY_ANNOUNCE_CHANNEL_ID` 都支援逗號分隔多組，讓 bot 可以同時服務多個 Discord 伺服器（見 `src/config.ts`）；新增 `MESSAGE_TRIGGER_GUILD_ID`，把 `messageCreate.ts` 的關鍵字彩蛋鎖在單一伺服器，不會被同一位觸發使用者帶到其他伺服器或 DM。**RPG 資料本身沒有依伺服器隔離**——`User` 只用 Discord 使用者 ID 當唯一鍵，同一個帳號在所有加了這隻 bot 的伺服器裡共用同一份角色（等級、金幣、背包、排行榜都是全域的），這是刻意的設計，不是還沒做完的功能。
 
 **還沒做、算是已知缺口**：VM 的建立過程（Console 點擊步驟）沒有腳本化，重建要重新手動跑一次；沒有自動化的「VM 健康檢查」告警（例如整台機器沒有回應時不會有人主動通知）。
 
