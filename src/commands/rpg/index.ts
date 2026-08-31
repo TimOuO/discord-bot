@@ -19,13 +19,18 @@ import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
 import { handleFishCommand, handleFishSellButton, handleFishSellAllButton } from "./fish";
 import { handleEquipCommand, equipAutocomplete, handleUseCommand, useAutocomplete } from "./items";
 import {
-  handleShopList,
   handleShopBuy,
   handleShopSell,
   handleShopSellAllButton,
   shopBuyAutocomplete,
   shopSellAutocomplete,
 } from "./shop";
+import {
+  handleShopListCommand,
+  handleShopListPageButton,
+  handleShopListSelect,
+  handleShopListBuyButton,
+} from "./shopList";
 
 // 按鈕/選單 handler、buildDailyRewardEmbed 給 interactionCreate.ts、voiceStateUpdate.ts 用
 export {
@@ -39,6 +44,9 @@ export {
   handleInventoryEquipSlotButton,
   handleInventoryUseButton,
   handleInventorySellButton,
+  handleShopListPageButton,
+  handleShopListSelect,
+  handleShopListBuyButton,
   buildDailyRewardEmbed,
 };
 
@@ -144,7 +152,7 @@ export default {
     if (group === "shop") {
       switch (subcommand) {
         case "list":
-          return handleShopList(interaction);
+          return handleShopListCommand(interaction);
         case "buy":
           return handleShopBuy(interaction);
         case "sell":

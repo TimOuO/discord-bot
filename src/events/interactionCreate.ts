@@ -17,6 +17,9 @@ import {
   handleInventoryEquipSlotButton,
   handleInventoryUseButton,
   handleInventorySellButton,
+  handleShopListPageButton,
+  handleShopListSelect,
+  handleShopListBuyButton,
 } from "../commands/rpg";
 
 // customId 前綴對應到的按鈕處理函式；新增按鈕時在這裡註冊就好
@@ -30,11 +33,14 @@ const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promis
   inv_equip_slot: handleInventoryEquipSlotButton,
   inv_use: handleInventoryUseButton,
   inv_sell: handleInventorySellButton,
+  shoplist_page: handleShopListPageButton,
+  shoplist_buy: handleShopListBuyButton,
 };
 
 // customId 前綴對應到的下拉選單處理函式
 const SELECT_HANDLERS: Record<string, (interaction: StringSelectMenuInteraction) => Promise<void>> = {
   inv_select: handleInventorySelect,
+  shoplist_select: handleShopListSelect,
 };
 
 export default (client: ExtendedClient): void => {

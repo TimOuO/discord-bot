@@ -10,39 +10,10 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import {
-  ItemService,
-  TYPE_LABELS,
-  TYPE_EMOJIS,
-  EFFECT_TYPE_LABELS,
-  SLOT_GROUP_LABELS,
-} from "../../services/itemService";
+import { ItemService, SLOT_GROUP_LABELS } from "../../services/itemService";
 import type { Item } from "../../generated/prisma";
-import { sectionField, chip } from "../../utils/embeds";
+import { chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
-
-export async function handleShopList(interaction: ChatInputCommandInteraction) {
-  const items = await ItemService.getShopCatalog();
-
-  const embed = new EmbedBuilder()
-    .setTitle("🛒 商店")
-    .setColor("#f39c12" as ColorResolvable)
-    .setFooter({ text: "使用 /rpg shop buy 購買道具、/rpg shop sell 販賣道具" });
-
-  for (const type of Object.keys(TYPE_LABELS)) {
-    const itemsOfType = items.filter((item) => item.type === type);
-    if (itemsOfType.length === 0) continue;
-
-    const lines = itemsOfType.map((item) => {
-      const effectLabel = EFFECT_TYPE_LABELS[item.effectType] ?? item.effectType;
-      return `**${item.name}** — ${chip(item.cost)} 金幣（${effectLabel} +${chip(item.effectValue)}）${item.description}`;
-    });
-
-    embed.addFields(sectionField(TYPE_EMOJIS[type] ?? "🛒", TYPE_LABELS[type], lines));
-  }
-
-  return interaction.reply({ embeds: [embed] });
-}
 
 export async function handleShopBuy(interaction: ChatInputCommandInteraction) {
   try {
