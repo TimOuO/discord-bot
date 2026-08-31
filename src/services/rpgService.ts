@@ -4,7 +4,7 @@ import prisma from "./dbService";
 import { ItemService } from "./itemService";
 
 const FISH_COOLDOWN_MS = 60 * 1000;
-const EMPTY_CATCH_CHANCE = 0.2;
+const EMPTY_CATCH_CHANCE = 0.05;
 const EMPTY_CATCH_MESSAGES = [
   "魚餌被偷吃了，什麼都沒釣到...",
   "等了老半天，連個影子都沒有。",
