@@ -1,6 +1,10 @@
 import {
   ChatInputCommandInteraction,
   AutocompleteInteraction,
+  ButtonInteraction,
+  ButtonBuilder,
+  ButtonStyle,
+  ActionRowBuilder,
   EmbedBuilder,
   ColorResolvable,
   MessageFlags,
@@ -13,7 +17,9 @@ import {
   EFFECT_TYPE_LABELS,
   SLOT_LABELS,
 } from "../../services/itemService";
+import type { Item } from "../../generated/prisma";
 import { sectionField, chip } from "../../utils/embeds";
+import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 
 export async function handleShopList(interaction: ChatInputCommandInteraction) {
   const items = await ItemService.getShopCatalog();
@@ -68,6 +74,36 @@ export async function handleShopBuy(interaction: ChatInputCommandInteraction) {
   }
 }
 
+function buildSellAllRow(
+  ownerId: string,
+  itemName: string,
+  remainingQuantity: number,
+  totalPrice: number
+): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("shop_sell_all", ownerId, itemName))
+      .setLabel(`全部賣掉（${remainingQuantity} 個・${totalPrice} 金幣）`)
+      .setEmoji("💰")
+      .setStyle(ButtonStyle.Secondary)
+  );
+}
+
+// 賣完之後查一次還剩幾個賣得動，有剩才顯示「全部賣掉」按鈕；按鈕上直接標總價，不用點下去才知道
+async function buildSellReply(userInternalId: string, ownerId: string, item: Item, sellPrice: number) {
+  const inventory = await ItemService.getInventory(userInternalId);
+  const remaining = inventory.find((row) => row.itemId === item.id)?.quantity ?? 0;
+
+  const embed = new EmbedBuilder()
+    .setColor("#95a5a6" as ColorResolvable)
+    .setDescription(`💰 賣掉「${item.name}」，獲得 ${sellPrice} 金幣。`);
+
+  if (remaining <= 0) return { embeds: [embed], components: [] };
+
+  const totalPrice = ItemService.getSellPricePerUnit(item) * remaining;
+  return { embeds: [embed], components: [buildSellAllRow(ownerId, item.name, remaining, totalPrice)] };
+}
+
 export async function handleShopSell(interaction: ChatInputCommandInteraction) {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -82,10 +118,36 @@ export async function handleShopSell(interaction: ChatInputCommandInteraction) {
     const itemName = interaction.options.getString("item", true);
     const { item, sellPrice } = await ItemService.sellItem(user.id, itemName);
 
-    return interaction.editReply(`💰 賣掉「${item.name}」，獲得 ${sellPrice} 金幣。`);
+    const payload = await buildSellReply(user.id, interaction.user.id, item, sellPrice);
+    return interaction.editReply(payload);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return interaction.editReply(`販賣失敗：${message}`);
+  }
+}
+
+// interactionCreate.ts 會把 "shop_sell_all:*" 的按鈕點擊導到這裡；賣掉「賣得動的全部」，裝備中的不會被賣
+export async function handleShopSellAllButton(interaction: ButtonInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+
+  const itemName = args[0];
+
+  await interaction.deferUpdate();
+  try {
+    const user = await RPGService.findUserByDiscordId(interaction.user.id);
+    if (!user) throw new Error("找不到你的角色資料");
+
+    const { sellPrice, amount } = await ItemService.sellAllOfItem(user.id, itemName);
+
+    const embed = new EmbedBuilder()
+      .setColor("#95a5a6" as ColorResolvable)
+      .setDescription(`💰 全部賣掉「${itemName}」x${amount}，獲得 ${sellPrice} 金幣。`);
+
+    await interaction.editReply({ embeds: [embed], components: [] });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
 }
 
@@ -111,9 +173,16 @@ export async function shopSellAutocomplete(interaction: AutocompleteInteraction)
     .filter((row) => row.item.name.includes(focused))
     .slice(0, 25);
   return interaction.respond(
-    filtered.map((row) => ({
-      name: `${row.item.name} x${row.quantity}（賣 ${Math.floor(row.item.cost * 0.5)} 金幣）`,
-      value: row.item.name,
-    }))
+    filtered.map((row) => {
+      const unitPrice = ItemService.getSellPricePerUnit(row.item);
+      const priceNote =
+        row.quantity > 1
+          ? `賣 1 隻 ${unitPrice} 金幣・全賣 ${unitPrice * row.quantity} 金幣`
+          : `賣 ${unitPrice} 金幣`;
+      return {
+        name: `${row.item.name} x${row.quantity}（${priceNote}）`,
+        value: row.item.name,
+      };
+    })
   );
 }

@@ -5,6 +5,9 @@ export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2"] as co
 export type EquipSlot = (typeof EQUIP_SLOTS)[number];
 
 const EQUIPPABLE_TYPES: readonly string[] = ["weapon", "armor", "accessory"];
+// 商店買得到的道具賣掉打五折（正常經濟消耗）；釣到的魚沒有商店售價可言，
+// Item.cost 對魚類來說只是「參考價值」不是玩家真的付過的錢，所以賣魚不打折
+const NON_PURCHASABLE_TYPES: readonly string[] = ["fish"];
 const SELL_PRICE_RATIO = 0.5;
 
 export const TYPE_LABELS: Record<string, string> = {
@@ -55,13 +58,19 @@ export class ItemService {
   // 魚類只能靠 /rpg fish 釣，不放進商店可購買清單（見 sellItem 之後可以拿去賣）
   static async getShopCatalog(): Promise<Item[]> {
     return prisma.item.findMany({
-      where: { type: { not: "fish" } },
+      where: { type: { notIn: [...NON_PURCHASABLE_TYPES] } },
       orderBy: [{ type: "asc" }, { cost: "asc" }],
     });
   }
 
   static async findItemByName(name: string): Promise<Item | null> {
     return prisma.item.findUnique({ where: { name } });
+  }
+
+  // 每一件賣掉能拿到的金幣：商店買得到的道具打五折，釣到的魚（沒有商店售價）全額賣出
+  static getSellPricePerUnit(item: Item): number {
+    const ratio = NON_PURCHASABLE_TYPES.includes(item.type) ? 1 : SELL_PRICE_RATIO;
+    return Math.floor(item.cost * ratio);
   }
 
   static async getInventory(userInternalId: string) {
@@ -103,7 +112,7 @@ export class ItemService {
   static async buyItem(userInternalId: string, itemName: string) {
     const item = await this.findItemByName(itemName);
     if (!item) throw new Error(`商店裡沒有「${itemName}」這件道具`);
-    if (item.type === "fish") {
+    if (NON_PURCHASABLE_TYPES.includes(item.type)) {
       throw new Error(`「${item.name}」不是商店販售的商品，要自己去 /rpg fish 釣才拿得到！`);
     }
 
@@ -166,10 +175,42 @@ export class ItemService {
     return null;
   }
 
-  static async sellItem(userInternalId: string, itemName: string) {
+  static async sellItem(userInternalId: string, itemName: string, amount = 1) {
+    if (amount < 1) throw new Error("賣出數量至少要 1 個");
+
     const item = await this.findItemByName(itemName);
     if (!item) throw new Error(`「${itemName}」不是有效的道具名稱`);
 
+    return this.sellItemQuantity(userInternalId, item, amount);
+  }
+
+  // 賣掉「賣得動的全部數量」，裝備中的那幾件會自動排除、不會賣到
+  static async sellAllOfItem(userInternalId: string, itemName: string) {
+    const item = await this.findItemByName(itemName);
+    if (!item) throw new Error(`「${itemName}」不是有效的道具名稱`);
+
+    const sellableQuantity = await this.getSellableQuantity(userInternalId, item.id);
+    if (sellableQuantity <= 0) {
+      throw new Error(`「${item.name}」目前全部都在裝備中，沒有可以賣的`);
+    }
+
+    return this.sellItemQuantity(userInternalId, item, sellableQuantity);
+  }
+
+  private static async getSellableQuantity(userInternalId: string, itemId: string): Promise<number> {
+    const inventory = await prisma.inventory.findUnique({
+      where: { userId_itemId: { userId: userInternalId, itemId } },
+    });
+    if (!inventory) return 0;
+
+    // 賣掉後剩下的數量，不能少於目前裝備中引用這件道具的欄位數
+    const equippedCount = await prisma.equippedItem.count({
+      where: { userId: userInternalId, itemId },
+    });
+    return inventory.quantity - equippedCount;
+  }
+
+  private static async sellItemQuantity(userInternalId: string, item: Item, amount: number) {
     const inventory = await prisma.inventory.findUnique({
       where: { userId_itemId: { userId: userInternalId, itemId: item.id } },
     });
@@ -177,34 +218,36 @@ export class ItemService {
       throw new Error(`你沒有「${item.name}」可以賣`);
     }
 
-    // 賣掉後剩下的數量，不能少於目前裝備中引用這件道具的欄位數
-    const equippedCount = await prisma.equippedItem.count({
-      where: { userId: userInternalId, itemId: item.id },
-    });
-    if (inventory.quantity - 1 < equippedCount) {
+    const sellableQuantity = await this.getSellableQuantity(userInternalId, item.id);
+    if (amount > sellableQuantity) {
+      if (sellableQuantity <= 0) {
+        throw new Error(
+          `「${item.name}」目前正在裝備中，無法賣掉最後一件，請先換裝再賣`
+        );
+      }
       throw new Error(
-        `「${item.name}」目前正在裝備中，無法賣掉最後一件，請先換裝再賣`
+        `「${item.name}」最多只能賣 ${sellableQuantity} 個（裝備中的不能賣掉最後一件）`
       );
     }
 
-    const sellPrice = Math.floor(item.cost * SELL_PRICE_RATIO);
+    const sellPrice = this.getSellPricePerUnit(item) * amount;
 
     await prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: userInternalId },
         data: { gold: { increment: sellPrice } },
       });
-      if (inventory.quantity - 1 <= 0) {
+      if (inventory.quantity - amount <= 0) {
         await tx.inventory.delete({ where: { id: inventory.id } });
       } else {
         await tx.inventory.update({
           where: { id: inventory.id },
-          data: { quantity: { decrement: 1 } },
+          data: { quantity: { decrement: amount } },
         });
       }
     });
 
-    return { item, sellPrice };
+    return { item, sellPrice, amount };
   }
 
   static async useItem(userInternalId: string, itemName: string) {

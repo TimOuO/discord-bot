@@ -13,12 +13,18 @@ import {
   handleShopList,
   handleShopBuy,
   handleShopSell,
+  handleShopSellAllButton,
   shopBuyAutocomplete,
   shopSellAutocomplete,
 } from "./shop";
 
 // 按鈕/選單 handler、buildDailyRewardEmbed 給 interactionCreate.ts、voiceStateUpdate.ts 用
-export { handleBattleRematchButton, handleFishSellButton, buildDailyRewardEmbed };
+export {
+  handleBattleRematchButton,
+  handleFishSellButton,
+  handleShopSellAllButton,
+  buildDailyRewardEmbed,
+};
 
 export default {
   data: new SlashCommandBuilder()
@@ -88,7 +94,7 @@ export default {
         .addSubcommand((subcommand) =>
           subcommand
             .setName("sell")
-            .setDescription("販賣道具（原價 50%）")
+            .setDescription("販賣道具（商店買的原價 50%，釣到的魚全額賣出）")
             .addStringOption((option) =>
               option
                 .setName("item")
