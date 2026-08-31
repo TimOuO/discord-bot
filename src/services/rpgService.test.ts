@@ -17,6 +17,21 @@ describe("RPGService.getOrCreateUser", () => {
   });
 });
 
+describe("RPGService.getLeaderboard", () => {
+  it("依等級高低排序，等級相同時比經驗值高低", async () => {
+    // 用遠高於其他測試會用到的等級，確保這幾筆一定排在最前面，不受其他測試資料干擾
+    const { user: userA } = await createTestUser({ level: 500, xp: 100 });
+    const { user: userB } = await createTestUser({ level: 500, xp: 200 });
+    const { user: userC } = await createTestUser({ level: 400, xp: 999999 });
+
+    const leaderboard = await RPGService.getLeaderboard(10);
+
+    expect(leaderboard[0].id).toBe(userB.id); // 等級同為 500，經驗較高的排前面
+    expect(leaderboard[1].id).toBe(userA.id);
+    expect(leaderboard[2].id).toBe(userC.id); // 等級較低，經驗再高也排在後面
+  });
+});
+
 describe("xpThresholdForLevel", () => {
   it("是平方成長，等級越高門檻拉開得越快", () => {
     expect(xpThresholdForLevel(2)).toBe(200);

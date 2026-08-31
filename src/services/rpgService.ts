@@ -139,6 +139,14 @@ export class RPGService {
     return user;
   }
 
+  // 排名依等級高低，等級相同時比經驗值；2 人小型伺服器不需要更複雜的多分類排行榜
+  static async getLeaderboard(limit = 10): Promise<User[]> {
+    return prisma.user.findMany({
+      orderBy: [{ level: "desc" }, { xp: "desc" }],
+      take: limit,
+    });
+  }
+
   static async startRPG(userId: string, username: string): Promise<User> {
     return this.getOrCreateUser(userId, username);
   }

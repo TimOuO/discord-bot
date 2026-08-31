@@ -5,6 +5,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { handleStartCommand, handleProfileCommand } from "./character";
+import { handleLeaderboardCommand } from "./leaderboard";
 import {
   handleInventoryCommand,
   handleInventoryPageButton,
@@ -62,6 +63,9 @@ export default {
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("profile").setDescription("查看你的角色資料")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("leaderboard").setDescription("查看等級排行榜")
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("inventory").setDescription("查看你的背包與裝備")
@@ -172,6 +176,8 @@ export default {
         return handleStartCommand(interaction);
       case "profile":
         return handleProfileCommand(interaction);
+      case "leaderboard":
+        return handleLeaderboardCommand(interaction);
       case "inventory":
         return handleInventoryCommand(interaction);
       case "battle":
