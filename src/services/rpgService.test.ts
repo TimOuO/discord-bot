@@ -59,6 +59,8 @@ describe("RPGService.battle", () => {
 
     expect(result.result).toBe("lose");
     expect(result.user.health).toBe(30);
+    // 開戰前血量是 1，結束後變 30，healthDelta 要精準反映這個差額，不能只回傳絕對值
+    expect(result.healthDelta).toBe(29);
   });
 
   it("戰鬥後 30 秒內再戰會被冷卻擋下", async () => {

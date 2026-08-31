@@ -119,6 +119,7 @@ export class RPGService {
     result: "win" | "lose";
     xpGained: number;
     goldGained: number;
+    healthDelta: number;
     message: string;
   }> {
     const user = await prisma.user.findUnique({
@@ -254,6 +255,7 @@ export class RPGService {
       result,
       xpGained,
       goldGained,
+      healthDelta: updatedUser.health - user.health,
       message,
     };
   }
