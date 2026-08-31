@@ -22,6 +22,9 @@ import {
   handleShopListPageButton,
   handleShopListSelect,
   handleShopListBuyButton,
+  handleCraftListPageButton,
+  handleCraftListSelect,
+  handleCraftMakeButton,
 } from "../commands/rpg";
 
 // customId 前綴對應到的按鈕處理函式；新增按鈕時在這裡註冊就好
@@ -39,12 +42,15 @@ const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promis
   inv_sell: handleInventorySellButton,
   shoplist_page: handleShopListPageButton,
   shoplist_buy: handleShopListBuyButton,
+  craft_page: handleCraftListPageButton,
+  craft_make: handleCraftMakeButton,
 };
 
 // customId 前綴對應到的下拉選單處理函式
 const SELECT_HANDLERS: Record<string, (interaction: StringSelectMenuInteraction) => Promise<void>> = {
   inv_select: handleInventorySelect,
   shoplist_select: handleShopListSelect,
+  craft_select: handleCraftListSelect,
 };
 
 export default (client: ExtendedClient): void => {

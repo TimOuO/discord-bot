@@ -19,7 +19,13 @@ import { handleBattleCommand, handleBattleRematchButton } from "./battle";
 import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
 import { handleFishCommand, handleFishSellButton, handleFishSellAllButton } from "./fish";
 import { handleGatherCommand, handleGatherSellButton, handleGatherSellAllButton } from "./gather";
-import { handleCraftCommand, craftAutocomplete } from "./craft";
+import {
+  handleCraftCommand,
+  craftAutocomplete,
+  handleCraftListPageButton,
+  handleCraftListSelect,
+  handleCraftMakeButton,
+} from "./craft";
 import { handleEquipCommand, equipAutocomplete, handleUseCommand, useAutocomplete } from "./items";
 import {
   handleShopBuy,
@@ -52,6 +58,9 @@ export {
   handleShopListPageButton,
   handleShopListSelect,
   handleShopListBuyButton,
+  handleCraftListPageButton,
+  handleCraftListSelect,
+  handleCraftMakeButton,
   buildDailyRewardEmbed,
 };
 
@@ -86,12 +95,12 @@ export default {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("craft")
-        .setDescription("用材料鍛造神話級裝備")
+        .setDescription("用材料鍛造神話級裝備；不填道具名稱會顯示可瀏覽的配方清單")
         .addStringOption((option) =>
           option
             .setName("item")
-            .setDescription("要鍛造的裝備")
-            .setRequired(true)
+            .setDescription("要鍛造的裝備，不填會顯示配方清單")
+            .setRequired(false)
             .setAutocomplete(true)
         )
     )
