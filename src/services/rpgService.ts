@@ -80,6 +80,7 @@ export type DailyClaimResult =
       xpReward: number;
       streak: number;
       updatedUser: User;
+      effectiveMaxHealth: number;
     };
 
 export class RPGService {
@@ -121,6 +122,7 @@ export class RPGService {
     goldGained: number;
     healthDelta: number;
     rounds: number;
+    effectiveMaxHealth: number;
     message: string;
   }> {
     const user = await prisma.user.findUnique({
@@ -192,6 +194,9 @@ export class RPGService {
     let xpGained = 0;
     let goldGained = 0;
     let message = "";
+    // 裝備不會在戰鬥中途變動，所以升級前後的差別只在「基礎值」，這裡先預設沒升級時的有效上限，
+    // win 分支升級時會再蓋成 newMaxHealth（已經把等級加成算進去的有效值）
+    let effectiveMaxHealth = effectiveStats.maxHealth;
 
     if (result === "win") {
       xpGained = 10 + enemyLevel * 5 + randomInt(1, 6);
@@ -207,6 +212,7 @@ export class RPGService {
       }
       const levelsGained = newLevel - currentLevel;
       const newMaxHealth = effectiveStats.maxHealth + levelsGained * 10;
+      effectiveMaxHealth = newMaxHealth;
 
       message =
         levelsGained > 0
@@ -260,6 +266,7 @@ export class RPGService {
       goldGained,
       healthDelta: updatedUser.health - user.health,
       rounds,
+      effectiveMaxHealth,
       message,
     };
   }
@@ -362,6 +369,14 @@ export class RPGService {
 
     const finalGoldReward = goldReward + streakBonus;
 
+    // 生命上限要用「有效值」（含裝備加成），不能只看資料庫存的基礎值，
+    // 不然裝備加生命上限的玩家，血量本來就可能高於基礎值，這裡用基礎值封頂反而會倒扣血量
+    const effectiveStats = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -369,8 +384,8 @@ export class RPGService {
         xp: { increment: xpReward },
         lastDaily: now,
         health: Math.min(
-          user.health + Math.floor(user.maxHealth * 0.3),
-          user.maxHealth
+          user.health + Math.floor(effectiveStats.maxHealth * 0.3),
+          effectiveStats.maxHealth
         ),
         loginStreak: streak,
         lastStreakDate: currentDate,
@@ -385,6 +400,7 @@ export class RPGService {
       xpReward,
       streak,
       updatedUser,
+      effectiveMaxHealth: effectiveStats.maxHealth,
     };
   }
 }

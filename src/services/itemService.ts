@@ -241,22 +241,20 @@ export class ItemService {
 
     const sellPrice = this.getSellPricePerUnit(item) * amount;
 
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({
+    const [updatedUser] = await prisma.$transaction([
+      prisma.user.update({
         where: { id: userInternalId },
         data: { gold: { increment: sellPrice } },
-      });
-      if (inventory.quantity - amount <= 0) {
-        await tx.inventory.delete({ where: { id: inventory.id } });
-      } else {
-        await tx.inventory.update({
-          where: { id: inventory.id },
-          data: { quantity: { decrement: amount } },
-        });
-      }
-    });
+      }),
+      inventory.quantity - amount <= 0
+        ? prisma.inventory.delete({ where: { id: inventory.id } })
+        : prisma.inventory.update({
+            where: { id: inventory.id },
+            data: { quantity: { decrement: amount } },
+          }),
+    ]);
 
-    return { item, sellPrice, amount };
+    return { item, sellPrice, amount, goldAfter: updatedUser.gold };
   }
 
   static async useItem(userInternalId: string, itemName: string) {

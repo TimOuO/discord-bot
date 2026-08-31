@@ -78,7 +78,10 @@ export async function handleFishCommand(interaction: ChatInputCommandInteraction
 // fish_sell、fish_sell_all 兩顆按鈕共用：賣完後把卡片改成灰色、附加「已賣出」欄位，失敗不動原本卡片
 async function handleFishSellInteraction(
   interaction: ButtonInteraction,
-  sell: (userInternalId: string, itemName: string) => Promise<{ sellPrice: number; amount?: number }>
+  sell: (
+    userInternalId: string,
+    itemName: string
+  ) => Promise<{ sellPrice: number; amount?: number; goldAfter: number }>
 ) {
   const { ownerId, args } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
@@ -90,8 +93,10 @@ async function handleFishSellInteraction(
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
 
-    const { sellPrice, amount } = await sell(user.id, itemName);
-    const soldLabel = amount && amount > 1 ? `x${amount}，+${sellPrice} 金幣` : `+${sellPrice} 金幣`;
+    const { sellPrice, amount, goldAfter } = await sell(user.id, itemName);
+    const soldLabel =
+      (amount && amount > 1 ? `x${amount}，+${sellPrice} 金幣` : `+${sellPrice} 金幣`) +
+      `（目前 ${goldAfter} 金幣）`;
 
     const originalEmbed = interaction.message.embeds[0];
     const embed = originalEmbed

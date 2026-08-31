@@ -50,6 +50,7 @@ describe("ItemService.sellItem", () => {
     const result = await ItemService.sellItem(user.id, item.name);
 
     expect(result.sellPrice).toBe(50);
+    expect(result.goldAfter).toBe(50); // 買之前 100 金幣，花 100 買、賣回 50，剩 50
     const inventory = await ItemService.getInventory(user.id);
     expect(inventory.find((row) => row.itemId === item.id)).toBeUndefined();
   });

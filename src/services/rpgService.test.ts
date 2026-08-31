@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { RPGService, xpThresholdForLevel } from "./rpgService";
-import { createTestUser } from "../../test/helpers";
+import { ItemService } from "./itemService";
+import { createTestUser, createTestItem } from "../../test/helpers";
 import prisma from "./dbService";
 
 describe("RPGService.getOrCreateUser", () => {
@@ -87,6 +88,27 @@ describe("RPGService.battle", () => {
 
     expect(result.user.level).toBeGreaterThan(user.level);
     expect(result.user.health).toBe(result.user.maxHealth);
+  });
+
+  it("有生命上限加成的裝備時，effectiveMaxHealth 要包含裝備加成，不能只回傳資料庫的基礎值", async () => {
+    const { discordUserId, user } = await createTestUser({
+      gold: 1000,
+      attack: 9999,
+      defense: 9999,
+      health: 100,
+      maxHealth: 100,
+    });
+    const accessory = await createTestItem({
+      type: "accessory",
+      cost: 100,
+      effectType: "maxHealth",
+      effectValue: 50,
+    });
+    await ItemService.buyItem(user.id, accessory.name); // 自動裝上（空欄位）
+
+    const result = await RPGService.battle(discordUserId);
+
+    expect(result.effectiveMaxHealth).toBe(150); // 基礎 100 + 裝備 50
   });
 });
 
@@ -177,5 +199,29 @@ describe("RPGService.claimDaily", () => {
     const second = await RPGService.claimDaily(discordUserId);
 
     expect(second.status).toBe("already_claimed");
+  });
+
+  it("有生命上限加成的裝備、血量已經高於基礎上限時，簽到補血不能倒扣血量", async () => {
+    const { discordUserId, user } = await createTestUser({
+      gold: 1000,
+      health: 140, // 高於基礎上限 100，低於有效上限 150（例如剛靠戰鬥補到這個血量）
+      maxHealth: 100,
+    });
+    const accessory = await createTestItem({
+      type: "accessory",
+      cost: 100,
+      effectType: "maxHealth",
+      effectValue: 50,
+    });
+    await ItemService.buyItem(user.id, accessory.name); // 自動裝上，有效上限變 150
+
+    const result = await RPGService.claimDaily(discordUserId);
+
+    expect(result.status).toBe("claimed");
+    if (result.status === "claimed") {
+      expect(result.effectiveMaxHealth).toBe(150);
+      // 修 bug 前：用基礎值 100 封頂，140 會被砍到 100，等於簽到扣血
+      expect(result.updatedUser.health).toBeGreaterThanOrEqual(140);
+    }
   });
 });

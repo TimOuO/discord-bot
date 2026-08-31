@@ -90,13 +90,19 @@ function buildSellAllRow(
 }
 
 // 賣完之後查一次還剩幾個賣得動，有剩才顯示「全部賣掉」按鈕；按鈕上直接標總價，不用點下去才知道
-async function buildSellReply(userInternalId: string, ownerId: string, item: Item, sellPrice: number) {
+async function buildSellReply(
+  userInternalId: string,
+  ownerId: string,
+  item: Item,
+  sellPrice: number,
+  goldAfter: number
+) {
   const inventory = await ItemService.getInventory(userInternalId);
   const remaining = inventory.find((row) => row.itemId === item.id)?.quantity ?? 0;
 
   const embed = new EmbedBuilder()
     .setColor("#95a5a6" as ColorResolvable)
-    .setDescription(`💰 賣掉「${item.name}」，獲得 ${sellPrice} 金幣。`);
+    .setDescription(`💰 賣掉「${item.name}」，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`);
 
   if (remaining <= 0) return { embeds: [embed], components: [] };
 
@@ -119,15 +125,15 @@ export async function handleShopSell(interaction: ChatInputCommandInteraction) {
     const sellAll = interaction.options.getBoolean("all") ?? false;
 
     if (sellAll) {
-      const { item, sellPrice, amount } = await ItemService.sellAllOfItem(user.id, itemName);
+      const { item, sellPrice, amount, goldAfter } = await ItemService.sellAllOfItem(user.id, itemName);
       const embed = new EmbedBuilder()
         .setColor("#95a5a6" as ColorResolvable)
-        .setDescription(`💰 全部賣掉「${item.name}」x${amount}，獲得 ${sellPrice} 金幣。`);
+        .setDescription(`💰 全部賣掉「${item.name}」x${amount}，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`);
       return interaction.editReply({ embeds: [embed] });
     }
 
-    const { item, sellPrice } = await ItemService.sellItem(user.id, itemName);
-    const payload = await buildSellReply(user.id, interaction.user.id, item, sellPrice);
+    const { item, sellPrice, goldAfter } = await ItemService.sellItem(user.id, itemName);
+    const payload = await buildSellReply(user.id, interaction.user.id, item, sellPrice, goldAfter);
     return interaction.editReply(payload);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -147,11 +153,11 @@ export async function handleShopSellAllButton(interaction: ButtonInteraction) {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
 
-    const { sellPrice, amount } = await ItemService.sellAllOfItem(user.id, itemName);
+    const { sellPrice, amount, goldAfter } = await ItemService.sellAllOfItem(user.id, itemName);
 
     const embed = new EmbedBuilder()
       .setColor("#95a5a6" as ColorResolvable)
-      .setDescription(`💰 全部賣掉「${itemName}」x${amount}，獲得 ${sellPrice} 金幣。`);
+      .setDescription(`💰 全部賣掉「${itemName}」x${amount}，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`);
 
     await interaction.editReply({ embeds: [embed], components: [] });
   } catch (error) {

@@ -35,7 +35,7 @@ async function runBattleAndBuildReply(userId: string, username: string, avatarUR
     .addFields(
       sectionField("📊", "目前狀態", [
         `等級 ${chip(battleResult.user.level)}（經驗 ${chip(`${battleResult.user.xp}/${xpThresholdForLevel(battleResult.user.level)}`)}）`,
-        `生命值 ${progressBar(battleResult.user.health, battleResult.user.maxHealth)} ${chip(`${battleResult.user.health}/${battleResult.user.maxHealth}`)}（${battleResult.healthDelta >= 0 ? "+" : ""}${chip(battleResult.healthDelta)}・共 ${chip(battleResult.rounds)} 回合）`,
+        `生命值 ${progressBar(battleResult.user.health, battleResult.effectiveMaxHealth)} ${chip(`${battleResult.user.health}/${battleResult.effectiveMaxHealth}`)}（${battleResult.healthDelta >= 0 ? "+" : ""}${chip(battleResult.healthDelta)}・共 ${chip(battleResult.rounds)} 回合）`,
         `金幣 ${chip(battleResult.user.gold)}`,
       ])
     );

@@ -7,7 +7,7 @@ export function buildDailyRewardEmbed(
   username: string,
   result: Extract<DailyClaimResult, { status: "claimed" }>
 ): EmbedBuilder {
-  const { goldReward, streakBonus, finalGoldReward, xpReward, streak, updatedUser } = result;
+  const { goldReward, streakBonus, finalGoldReward, xpReward, streak, updatedUser, effectiveMaxHealth } = result;
 
   const embed = new EmbedBuilder()
     .setTitle("🎁 每日獎勵")
@@ -20,7 +20,7 @@ export function buildDailyRewardEmbed(
           ? `▷ 獲得金幣 ${chip(goldReward)} + ${chip(streakBonus)}（連續獎勵）= ${chip(finalGoldReward)} 💰`
           : `▷ 獲得金幣 ${chip(finalGoldReward)} 💰`,
         `▷ 獲得經驗 ${chip(xpReward)} ✨`,
-        `▷ 生命值恢復 ${progressBar(updatedUser.health, updatedUser.maxHealth)} ${chip(`${updatedUser.health}/${updatedUser.maxHealth}`)}`,
+        `▷ 生命值恢復 ${progressBar(updatedUser.health, effectiveMaxHealth)} ${chip(`${updatedUser.health}/${effectiveMaxHealth}`)}`,
       ].join("\n")
     );
 
