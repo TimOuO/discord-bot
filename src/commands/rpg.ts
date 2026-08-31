@@ -382,11 +382,13 @@ async function handleBattleCommand(interaction: ChatInputCommandInteraction) {
 }
 
 // interactionCreate.ts 會把 "battle_rematch:*" 的按鈕點擊導到這裡
+// 發新訊息、不動原本那張卡片：改成原地編輯的話，卡片不會因為被編輯跳到頻道最下面，
+// 頻道一有其他訊息穿插進來就容易被埋掉、找不到
 export async function handleBattleRematchButton(interaction: ButtonInteraction) {
   const { ownerId } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
 
-  await interaction.deferUpdate();
+  await interaction.deferReply();
   try {
     const payload = await runBattleAndBuildReply(
       interaction.user.id,
@@ -395,7 +397,8 @@ export async function handleBattleRematchButton(interaction: ButtonInteraction) 
     );
     await interaction.editReply(payload);
   } catch (error) {
-    // 失敗（例如冷卻中）不動原本的卡片，只用 ephemeral 訊息提示，按鈕還能再點
+    // 失敗（例如冷卻中）不留下一則公開的空白/錯誤訊息，刪掉 placeholder 改成只有本人看得到的提示
+    await interaction.deleteReply();
     const message = error instanceof Error ? error.message : String(error);
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
