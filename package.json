@@ -14,6 +14,7 @@
     "prepare": "npm run build",
     "db:migrate": "prisma migrate deploy",
     "db:seed:fish": "tsx src/scripts/seedFishItems.ts",
+    "db:seed:gather": "tsx src/scripts/seedGatherItems.ts",
     "db:seed:highTier": "tsx src/scripts/seedHighTierItems.ts",
     "test": "vitest run",
     "test:watch": "vitest",

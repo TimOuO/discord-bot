@@ -5,9 +5,9 @@ export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2"] as co
 export type EquipSlot = (typeof EQUIP_SLOTS)[number];
 
 export const EQUIPPABLE_TYPES: readonly string[] = ["weapon", "armor", "accessory"];
-// 商店買得到的道具賣掉打五折（正常經濟消耗）；釣到的魚沒有商店售價可言，
-// Item.cost 對魚類來說只是「參考價值」不是玩家真的付過的錢，所以賣魚不打折
-const NON_PURCHASABLE_TYPES: readonly string[] = ["fish"];
+// 商店買得到的道具賣掉打五折（正常經濟消耗）；釣到的魚、採集的材料沒有商店售價可言，
+// Item.cost 對它們來說只是「參考價值」不是玩家真的付過的錢，所以賣這些不打折
+const NON_PURCHASABLE_TYPES: readonly string[] = ["fish", "material"];
 const SELL_PRICE_RATIO = 0.5;
 
 export const TYPE_LABELS: Record<string, string> = {
@@ -16,6 +16,7 @@ export const TYPE_LABELS: Record<string, string> = {
   accessory: "飾品",
   potion: "藥水",
   fish: "魚類",
+  material: "材料",
 };
 
 export const TYPE_EMOJIS: Record<string, string> = {
@@ -24,6 +25,7 @@ export const TYPE_EMOJIS: Record<string, string> = {
   accessory: "💍",
   potion: "🧪",
   fish: "🐟",
+  material: "⛏️",
 };
 
 export const EFFECT_TYPE_LABELS: Record<string, string> = {
@@ -121,8 +123,11 @@ export class ItemService {
   static async buyItem(userInternalId: string, itemName: string) {
     const item = await this.findItemByName(itemName);
     if (!item) throw new Error(`商店裡沒有「${itemName}」這件道具`);
-    if (NON_PURCHASABLE_TYPES.includes(item.type)) {
+    if (item.type === "fish") {
       throw new Error(`「${item.name}」不是商店販售的商品，要自己去 /rpg fish 釣才拿得到！`);
+    }
+    if (item.type === "material") {
+      throw new Error(`「${item.name}」不是商店販售的商品，要自己去 /rpg gather 採集才拿得到！`);
     }
 
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userInternalId } });

@@ -113,7 +113,13 @@ describe("RPGService.battle", () => {
 });
 
 describe("RPGService.fish", () => {
-  const FISH_NAMES = ["小魚乾", "虹鱒", "銀鱗鮭", "深海鮟鱇魚", "黃金鯉魚"];
+  const FISH_NAMES = [
+    "小魚乾", "泥鰍", "吳郭魚",
+    "虹鱒", "鯖魚", "花枝",
+    "銀鱗鮭", "龍虎斑", "紅魽",
+    "深海鮟鱇魚", "電鰻", "小鯊魚",
+    "黃金鯉魚", "傳說錦鯉", "神秘魚王",
+  ];
 
   beforeAll(async () => {
     for (const name of FISH_NAMES) {
@@ -165,6 +171,74 @@ describe("RPGService.fish", () => {
     await RPGService.fish(discordUserId);
 
     const second = await RPGService.fish(discordUserId);
+
+    expect(second.status).toBe("cooldown");
+    if (second.status === "cooldown") {
+      expect(second.remainingSeconds).toBeGreaterThan(0);
+      expect(second.remainingSeconds).toBeLessThanOrEqual(60);
+    }
+  });
+});
+
+describe("RPGService.gather", () => {
+  const GATHER_NAMES = [
+    "樹枝", "石頭", "麻繩",
+    "鐵礦", "煤炭", "硬木",
+    "銀礦", "玉石", "陳年木材",
+    "金礦", "藍水晶", "魔力碎片",
+    "紫水晶", "星隕石", "遠古符文石",
+  ];
+
+  beforeAll(async () => {
+    for (const name of GATHER_NAMES) {
+      await prisma.item.upsert({
+        where: { name },
+        create: {
+          name,
+          description: "測試用材料",
+          type: "material",
+          rarity: "common",
+          cost: 10,
+          effectType: "none",
+          effectValue: 0,
+        },
+        update: {},
+      });
+    }
+  });
+
+  it("尚未開始遊戲的使用者回傳 not_started", async () => {
+    const result = await RPGService.gather("never-started-gatherer");
+    expect(result.status).toBe("not_started");
+  });
+
+  it("採集到材料時會加進背包、增加經驗值，且材料名一定在材料表裡", async () => {
+    const { discordUserId, user } = await createTestUser();
+
+    // 空軍機率 5%，重試幾次直到採到東西，避免測試因為運氣不好而不穩定
+    let result;
+    for (let i = 0; i < 30; i++) {
+      result = await RPGService.gather(discordUserId);
+      if (result.status === "gathered") break;
+      await prisma.user.update({ where: { userId: discordUserId }, data: { lastGather: null } });
+    }
+
+    expect(result?.status).toBe("gathered");
+    if (result?.status === "gathered") {
+      expect(GATHER_NAMES).toContain(result.item.name);
+      expect(result.quantity).toBeGreaterThan(0);
+      expect(result.xpGained).toBeGreaterThan(0);
+    }
+
+    const updatedUser = await RPGService.findUserByDiscordId(discordUserId);
+    expect(updatedUser!.xp).toBeGreaterThan(user.xp);
+  });
+
+  it("1 分鐘內再採集會被冷卻擋下", async () => {
+    const { discordUserId } = await createTestUser();
+    await RPGService.gather(discordUserId);
+
+    const second = await RPGService.gather(discordUserId);
 
     expect(second.status).toBe("cooldown");
     if (second.status === "cooldown") {

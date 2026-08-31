@@ -12,13 +12,37 @@ const EMPTY_CATCH_MESSAGES = [
   "只釣到一隻舊靴子。",
 ];
 
-// 稀有度權重：數字越大越常見，總和不用是 100，pickWeightedFish 會自己按比例抽
-const FISH_TABLE: { name: string; weight: number }[] = [
-  { name: "小魚乾", weight: 50 },
-  { name: "虹鱒", weight: 30 },
-  { name: "銀鱗鮭", weight: 15 },
-  { name: "深海鮟鱇魚", weight: 4 },
-  { name: "黃金鯉魚", weight: 1 },
+const GATHER_COOLDOWN_MS = 60 * 1000;
+const GATHER_EMPTY_CHANCE = 0.05;
+const GATHER_EMPTY_MESSAGES = [
+  "找了半天什麼都沒找到...",
+  "只挖到一堆土，白忙一場。",
+  "工具滑手，這次沒採到東西。",
+  "附近的資源被採光了，空手而歸。",
+];
+
+// 每個稀有度權重底下可以放多種名稱，抽中該稀有度後再從裡面隨機挑一個，
+// 這樣同一個稀有度也能有多種花樣，不用每種稀有度都寫死只有一個名字
+interface WeightedTier {
+  weight: number;
+  names: string[];
+}
+
+// 稀有度權重：數字越大越常見，總和不用是 100，pickFromWeightedTiers 會自己按比例抽
+const FISH_TABLE: WeightedTier[] = [
+  { weight: 50, names: ["小魚乾", "泥鰍", "吳郭魚"] },
+  { weight: 30, names: ["虹鱒", "鯖魚", "花枝"] },
+  { weight: 15, names: ["銀鱗鮭", "龍虎斑", "紅魽"] },
+  { weight: 4, names: ["深海鮟鱇魚", "電鰻", "小鯊魚"] },
+  { weight: 1, names: ["黃金鯉魚", "傳說錦鯉", "神秘魚王"] },
+];
+
+const GATHER_TABLE: WeightedTier[] = [
+  { weight: 50, names: ["樹枝", "石頭", "麻繩"] },
+  { weight: 30, names: ["鐵礦", "煤炭", "硬木"] },
+  { weight: 15, names: ["銀礦", "玉石", "陳年木材"] },
+  { weight: 4, names: ["金礦", "藍水晶", "魔力碎片"] },
+  { weight: 1, names: ["紫水晶", "星隕石", "遠古符文石"] },
 ];
 
 // 升到某等級需要的「累計」總經驗值，平方成長：等級越高，落差越大
@@ -27,14 +51,15 @@ export function xpThresholdForLevel(level: number): number {
   return 50 * level * level;
 }
 
-function pickWeightedFish(): string {
-  const totalWeight = FISH_TABLE.reduce((sum, fish) => sum + fish.weight, 0);
+function pickFromWeightedTiers(tiers: WeightedTier[]): string {
+  const totalWeight = tiers.reduce((sum, tier) => sum + tier.weight, 0);
   let roll = randomInt(0, totalWeight);
-  for (const fish of FISH_TABLE) {
-    if (roll < fish.weight) return fish.name;
-    roll -= fish.weight;
+  for (const tier of tiers) {
+    if (roll < tier.weight) return tier.names[randomInt(0, tier.names.length)];
+    roll -= tier.weight;
   }
-  return FISH_TABLE[0].name;
+  const lastTier = tiers[tiers.length - 1];
+  return lastTier.names[randomInt(0, lastTier.names.length)];
 }
 
 const DAILY_RESET_TIMEZONE = "Asia/Taipei";
@@ -68,6 +93,12 @@ export type FishResult =
   | { status: "cooldown"; remainingSeconds: number }
   | { status: "empty"; message: string }
   | { status: "caught"; item: Item; quantity: number; xpGained: number };
+
+export type GatherResult =
+  | { status: "not_started" }
+  | { status: "cooldown"; remainingSeconds: number }
+  | { status: "empty"; message: string }
+  | { status: "gathered"; item: Item; quantity: number; xpGained: number };
 
 export type DailyClaimResult =
   | { status: "not_started" }
@@ -290,7 +321,7 @@ export class RPGService {
       return { status: "empty", message: EMPTY_CATCH_MESSAGES[randomInt(0, EMPTY_CATCH_MESSAGES.length)] };
     }
 
-    const fishName = pickWeightedFish();
+    const fishName = pickFromWeightedTiers(FISH_TABLE);
     const item = await ItemService.findItemByName(fishName);
     if (!item) {
       throw new Error(`魚類資料「${fishName}」尚未建立，請先執行種子腳本 seedFishItems`);
@@ -311,6 +342,51 @@ export class RPGService {
     ]);
 
     return { status: "caught", item, quantity: inventory.quantity, xpGained };
+  }
+
+  static async gather(discordUserId: string): Promise<GatherResult> {
+    const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
+    if (!user) return { status: "not_started" };
+
+    if (user.lastGather) {
+      const elapsed = Date.now() - new Date(user.lastGather).getTime();
+      if (elapsed < GATHER_COOLDOWN_MS) {
+        return {
+          status: "cooldown",
+          remainingSeconds: Math.ceil((GATHER_COOLDOWN_MS - elapsed) / 1000),
+        };
+      }
+    }
+
+    if (Math.random() < GATHER_EMPTY_CHANCE) {
+      await prisma.user.update({ where: { id: user.id }, data: { lastGather: new Date() } });
+      return {
+        status: "empty",
+        message: GATHER_EMPTY_MESSAGES[randomInt(0, GATHER_EMPTY_MESSAGES.length)],
+      };
+    }
+
+    const materialName = pickFromWeightedTiers(GATHER_TABLE);
+    const item = await ItemService.findItemByName(materialName);
+    if (!item) {
+      throw new Error(`材料資料「${materialName}」尚未建立，請先執行種子腳本 seedGatherItems`);
+    }
+
+    const xpGained = randomInt(2, 6);
+
+    const [, inventory] = await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { lastGather: new Date(), xp: { increment: xpGained } },
+      }),
+      prisma.inventory.upsert({
+        where: { userId_itemId: { userId: user.id, itemId: item.id } },
+        create: { userId: user.id, itemId: item.id, quantity: 1 },
+        update: { quantity: { increment: 1 } },
+      }),
+    ]);
+
+    return { status: "gathered", item, quantity: inventory.quantity, xpGained };
   }
 
   // 共用邏輯：/rpg daily 手動簽到、跳語音頻道自動簽到都呼叫這個，確保兩者行為完全一致

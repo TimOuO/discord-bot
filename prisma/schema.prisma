@@ -25,6 +25,7 @@ model User {
   lastBattle    DateTime? // 上次戰鬥時間
   lastDaily     DateTime? // 上次日常簽到時間
   lastFish      DateTime? // 上次釣魚時間
+  lastGather    DateTime? // 上次採集時間
   loginStreak   Int      @default(0) // 連續登入天數
   lastStreakDate String?  // 上次連續登入的日期 (YYYY-MM-DD)
   createdAt     DateTime @default(now())

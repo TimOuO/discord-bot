@@ -17,6 +17,7 @@ import {
 import { handleBattleCommand, handleBattleRematchButton } from "./battle";
 import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
 import { handleFishCommand, handleFishSellButton, handleFishSellAllButton } from "./fish";
+import { handleGatherCommand, handleGatherSellButton, handleGatherSellAllButton } from "./gather";
 import { handleEquipCommand, equipAutocomplete, handleUseCommand, useAutocomplete } from "./items";
 import {
   handleShopBuy,
@@ -37,6 +38,8 @@ export {
   handleBattleRematchButton,
   handleFishSellButton,
   handleFishSellAllButton,
+  handleGatherSellButton,
+  handleGatherSellAllButton,
   handleShopSellAllButton,
   handleInventoryPageButton,
   handleInventorySelect,
@@ -71,6 +74,9 @@ export default {
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("fish").setDescription("到河邊釣魚，有機會釣到稀有魚類")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("gather").setDescription("採集材料，有機會採到稀有材料")
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -174,6 +180,8 @@ export default {
         return handleDailyCommand(interaction);
       case "fish":
         return handleFishCommand(interaction);
+      case "gather":
+        return handleGatherCommand(interaction);
       case "equip":
         return handleEquipCommand(interaction);
       case "use":
