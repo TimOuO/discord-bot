@@ -15,6 +15,14 @@ export const TYPE_LABELS: Record<string, string> = {
   fish: "魚類",
 };
 
+export const TYPE_EMOJIS: Record<string, string> = {
+  weapon: "⚔️",
+  armor: "🛡️",
+  accessory: "💍",
+  potion: "🧪",
+  fish: "🐟",
+};
+
 export const EFFECT_TYPE_LABELS: Record<string, string> = {
   attack: "攻擊力",
   defense: "防禦力",

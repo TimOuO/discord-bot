@@ -14,12 +14,13 @@ import { RPGService, DailyClaimResult, xpThresholdForLevel } from "../services/r
 import {
   ItemService,
   TYPE_LABELS,
+  TYPE_EMOJIS,
   EFFECT_TYPE_LABELS,
   SLOT_LABELS,
   RARITY_LABELS,
 } from "../services/itemService";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../utils/interactions";
-import { sectionField, chip } from "../utils/embeds";
+import { sectionField, chip, progressBar } from "../utils/embeds";
 
 const EQUIPPABLE_TYPES = ["weapon", "armor", "accessory"];
 
@@ -181,10 +182,9 @@ async function handleStartCommand(interaction: ChatInputCommandInteraction) {
       .setColor("#3498db" as ColorResolvable)
       .addFields(
         sectionField("📊", "初始屬性", [
-          `等級 ${chip(user.level)}`,
-          `經驗值 ${chip(user.xp)} / ${chip(xpThresholdForLevel(user.level))}`,
+          `等級 ${chip(user.level)}（經驗 ${chip(`${user.xp}/${xpThresholdForLevel(user.level)}`)}）`,
+          `生命值 ${progressBar(user.health, user.maxHealth)} ${chip(`${user.health}/${user.maxHealth}`)}`,
           `金幣 ${chip(user.gold)}`,
-          `生命值 ${chip(user.health)} / ${chip(user.maxHealth)}`,
           `攻擊力 ${chip(user.attack)}`,
           `防禦力 ${chip(user.defense)}`,
         ])
@@ -220,10 +220,9 @@ async function handleProfileCommand(interaction: ChatInputCommandInteraction) {
       .setColor("#2ecc71" as ColorResolvable)
       .addFields(
         sectionField("📊", "角色狀態", [
-          `等級 ${chip(user.level)}`,
-          `經驗值 ${chip(user.xp)} / ${chip(xpThresholdForLevel(user.level))}`,
+          `等級 ${chip(user.level)}（經驗 ${chip(`${user.xp}/${xpThresholdForLevel(user.level)}`)}）`,
+          `生命值 ${progressBar(user.health, effectiveStats.maxHealth)} ${chip(`${user.health}/${effectiveStats.maxHealth}`)}`,
           `金幣 ${chip(user.gold)}`,
-          `生命值 ${chip(user.health)} / ${chip(effectiveStats.maxHealth)}`,
           `攻擊力 ${chip(effectiveStats.attack)}`,
           `防禦力 ${chip(effectiveStats.defense)}`,
         ])
@@ -311,7 +310,7 @@ async function handleInventoryCommand(interaction: ChatInputCommandInteraction) 
           const equippedTag = equippedItemIds.has(row.itemId) ? "（裝備中）" : "";
           return `${row.item.name} x${chip(row.quantity)}${equippedTag}`;
         });
-        embed.addFields(sectionField("🧳", TYPE_LABELS[type], lines));
+        embed.addFields(sectionField(TYPE_EMOJIS[type] ?? "🧳", TYPE_LABELS[type], lines));
       }
     }
 
@@ -343,13 +342,12 @@ async function runBattleAndBuildReply(userId: string, username: string, avatarUR
   const embed = new EmbedBuilder()
     .setAuthor({ name: username, iconURL: avatarURL })
     .setTitle(`⚔️ ${username} vs ${battleResult.enemyName} Lv.${battleResult.enemyLevel}`)
+    .setDescription(battleResult.message)
     .setColor(color as ColorResolvable)
     .addFields(
-      sectionField("⚔️", "戰鬥結果", [battleResult.message]),
       sectionField("📊", "目前狀態", [
-        `生命值 ${chip(battleResult.user.health)} / ${chip(battleResult.user.maxHealth)}`,
-        `等級 ${chip(battleResult.user.level)}`,
-        `經驗值 ${chip(battleResult.user.xp)} / ${chip(xpThresholdForLevel(battleResult.user.level))}`,
+        `等級 ${chip(battleResult.user.level)}（經驗 ${chip(`${battleResult.user.xp}/${xpThresholdForLevel(battleResult.user.level)}`)}）`,
+        `生命值 ${progressBar(battleResult.user.health, battleResult.user.maxHealth)} ${chip(`${battleResult.user.health}/${battleResult.user.maxHealth}`)}（${battleResult.healthDelta >= 0 ? "+" : ""}${chip(battleResult.healthDelta)}）`,
         `金幣 ${chip(battleResult.user.gold)}`,
       ])
     );
@@ -414,15 +412,16 @@ export function buildDailyRewardEmbed(
   const embed = new EmbedBuilder()
     .setTitle("🎁 每日獎勵")
     .setColor("#f1c40f" as ColorResolvable)
-    .addFields(
-      sectionField("🎁", "簽到獎勵", [
+    .setDescription(
+      [
         `${username}，你已成功領取今日獎勵！`,
+        "",
         streakBonus > 0
-          ? `獲得金幣 ${chip(goldReward)} + ${chip(streakBonus)}（連續獎勵）= ${chip(finalGoldReward)} 💰`
-          : `獲得金幣 ${chip(finalGoldReward)} 💰`,
-        `獲得經驗 ${chip(xpReward)} ✨`,
-        `生命值恢復 ${chip(updatedUser.health)} / ${chip(updatedUser.maxHealth)} ❤️`,
-      ])
+          ? `▷ 獲得金幣 ${chip(goldReward)} + ${chip(streakBonus)}（連續獎勵）= ${chip(finalGoldReward)} 💰`
+          : `▷ 獲得金幣 ${chip(finalGoldReward)} 💰`,
+        `▷ 獲得經驗 ${chip(xpReward)} ✨`,
+        `▷ 生命值恢復 ${progressBar(updatedUser.health, updatedUser.maxHealth)} ${chip(`${updatedUser.health}/${updatedUser.maxHealth}`)}`,
+      ].join("\n")
     );
 
   if (streak >= 30) {
@@ -505,12 +504,12 @@ async function handleFishCommand(interaction: ChatInputCommandInteraction) {
       })
       .setTitle("🎣 釣魚成功！")
       .setColor("#3498db" as ColorResolvable)
-      .addFields(
-        sectionField("🎣", "釣魚結果", [
-          `釣到了一隻 \`${result.item.name}\`（${rarityLabel}）`,
-          `目前擁有 ${chip(result.quantity)} 隻`,
-          `獲得經驗 ${chip(result.xpGained)} ✨`,
-        ])
+      .setDescription(
+        [
+          `▷ 釣到了一隻 \`${result.item.name}\`（${rarityLabel}）`,
+          `▷ 目前擁有 ${chip(result.quantity)} 隻`,
+          `▷ 獲得經驗 ${chip(result.xpGained)} ✨`,
+        ].join("\n")
       );
 
     return interaction.editReply({
@@ -667,7 +666,7 @@ async function handleShopList(interaction: ChatInputCommandInteraction) {
       return `**${item.name}** — ${chip(item.cost)} 金幣（${effectLabel} +${chip(item.effectValue)}）${item.description}`;
     });
 
-    embed.addFields(sectionField("🛒", TYPE_LABELS[type], lines));
+    embed.addFields(sectionField(TYPE_EMOJIS[type] ?? "🛒", TYPE_LABELS[type], lines));
   }
 
   return interaction.reply({ embeds: [embed] });
