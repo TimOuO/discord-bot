@@ -15,7 +15,7 @@ import {
 } from "./inventory";
 import { handleBattleCommand, handleBattleRematchButton } from "./battle";
 import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
-import { handleFishCommand, handleFishSellButton } from "./fish";
+import { handleFishCommand, handleFishSellButton, handleFishSellAllButton } from "./fish";
 import { handleEquipCommand, equipAutocomplete, handleUseCommand, useAutocomplete } from "./items";
 import {
   handleShopList,
@@ -30,6 +30,7 @@ import {
 export {
   handleBattleRematchButton,
   handleFishSellButton,
+  handleFishSellAllButton,
   handleShopSellAllButton,
   handleInventoryPageButton,
   handleInventorySelect,
@@ -114,6 +115,12 @@ export default {
                 .setDescription("要販賣的道具")
                 .setRequired(true)
                 .setAutocomplete(true)
+            )
+            .addBooleanOption((option) =>
+              option
+                .setName("all")
+                .setDescription("一次全部賣掉，不用先賣 1 個再點按鈕")
+                .setRequired(false)
             )
         )
     ),

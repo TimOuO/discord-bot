@@ -116,8 +116,17 @@ export async function handleShopSell(interaction: ChatInputCommandInteraction) {
     }
 
     const itemName = interaction.options.getString("item", true);
-    const { item, sellPrice } = await ItemService.sellItem(user.id, itemName);
+    const sellAll = interaction.options.getBoolean("all") ?? false;
 
+    if (sellAll) {
+      const { item, sellPrice, amount } = await ItemService.sellAllOfItem(user.id, itemName);
+      const embed = new EmbedBuilder()
+        .setColor("#95a5a6" as ColorResolvable)
+        .setDescription(`💰 全部賣掉「${item.name}」x${amount}，獲得 ${sellPrice} 金幣。`);
+      return interaction.editReply({ embeds: [embed] });
+    }
+
+    const { item, sellPrice } = await ItemService.sellItem(user.id, itemName);
     const payload = await buildSellReply(user.id, interaction.user.id, item, sellPrice);
     return interaction.editReply(payload);
   } catch (error) {

@@ -9,6 +9,7 @@ import {
 import {
   handleBattleRematchButton,
   handleFishSellButton,
+  handleFishSellAllButton,
   handleShopSellAllButton,
   handleInventoryPageButton,
   handleInventorySelect,
@@ -21,6 +22,7 @@ import {
 const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promise<void>> = {
   battle_rematch: handleBattleRematchButton,
   fish_sell: handleFishSellButton,
+  fish_sell_all: handleFishSellAllButton,
   shop_sell_all: handleShopSellAllButton,
   inv_page: handleInventoryPageButton,
   inv_equip: handleInventoryEquipButton,

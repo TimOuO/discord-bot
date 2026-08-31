@@ -19,6 +19,11 @@ function buildFishSellRow(ownerId: string, itemName: string): ActionRowBuilder<B
       .setCustomId(buildCustomId("fish_sell", ownerId, itemName))
       .setLabel("立即賣掉")
       .setEmoji("💰")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("fish_sell_all", ownerId, itemName))
+      .setLabel("全部賣掉")
+      .setEmoji("💰")
       .setStyle(ButtonStyle.Secondary)
   );
 }
@@ -70,8 +75,11 @@ export async function handleFishCommand(interaction: ChatInputCommandInteraction
   }
 }
 
-// interactionCreate.ts 會把 "fish_sell:*" 的按鈕點擊導到這裡；只賣掉剛釣到的這一隻，不是全部
-export async function handleFishSellButton(interaction: ButtonInteraction) {
+// fish_sell、fish_sell_all 兩顆按鈕共用：賣完後把卡片改成灰色、附加「已賣出」欄位，失敗不動原本卡片
+async function handleFishSellInteraction(
+  interaction: ButtonInteraction,
+  sell: (userInternalId: string, itemName: string) => Promise<{ sellPrice: number; amount?: number }>
+) {
   const { ownerId, args } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
 
@@ -82,14 +90,15 @@ export async function handleFishSellButton(interaction: ButtonInteraction) {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
 
-    const { sellPrice } = await ItemService.sellItem(user.id, itemName);
+    const { sellPrice, amount } = await sell(user.id, itemName);
+    const soldLabel = amount && amount > 1 ? `x${amount}，+${sellPrice} 金幣` : `+${sellPrice} 金幣`;
 
     const originalEmbed = interaction.message.embeds[0];
     const embed = originalEmbed
       ? EmbedBuilder.from(originalEmbed)
           .setColor("#95a5a6" as ColorResolvable)
-          .addFields({ name: "已賣出", value: `💰 +${sellPrice} 金幣` })
-      : new EmbedBuilder().setDescription(`已賣出，獲得 ${sellPrice} 金幣`);
+          .addFields({ name: "已賣出", value: `💰 ${soldLabel}` })
+      : new EmbedBuilder().setDescription(`已賣出 ${soldLabel}`);
 
     await interaction.editReply({ embeds: [embed], components: [] });
   } catch (error) {
@@ -97,4 +106,18 @@ export async function handleFishSellButton(interaction: ButtonInteraction) {
     const message = error instanceof Error ? error.message : String(error);
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
+}
+
+// interactionCreate.ts 會把 "fish_sell:*" 的按鈕點擊導到這裡；只賣掉剛釣到的這一隻，不是全部
+export async function handleFishSellButton(interaction: ButtonInteraction) {
+  await handleFishSellInteraction(interaction, (userId, itemName) =>
+    ItemService.sellItem(userId, itemName)
+  );
+}
+
+// interactionCreate.ts 會把 "fish_sell_all:*" 的按鈕點擊導到這裡；賣掉背包裡這個魚種的全部庫存
+export async function handleFishSellAllButton(interaction: ButtonInteraction) {
+  await handleFishSellInteraction(interaction, (userId, itemName) =>
+    ItemService.sellAllOfItem(userId, itemName)
+  );
 }
