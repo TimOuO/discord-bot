@@ -5,11 +5,12 @@ import {
   InteractionReplyOptions,
   MessageFlags,
 } from "discord.js";
-import { handleBattleRematchButton } from "../commands/rpg";
+import { handleBattleRematchButton, handleFishSellButton } from "../commands/rpg";
 
 // customId 前綴對應到的按鈕處理函式；新增按鈕時在這裡註冊就好
 const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promise<void>> = {
   battle_rematch: handleBattleRematchButton,
+  fish_sell: handleFishSellButton,
 };
 
 export default (client: ExtendedClient): void => {

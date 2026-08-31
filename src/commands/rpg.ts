@@ -18,7 +18,7 @@ import {
   SLOT_LABELS,
   RARITY_LABELS,
 } from "../services/itemService";
-import { parseCustomId, requireInteractionOwner } from "../utils/interactions";
+import { buildCustomId, parseCustomId, requireInteractionOwner } from "../utils/interactions";
 
 const EQUIPPABLE_TYPES = ["weapon", "armor", "accessory"];
 
@@ -484,6 +484,16 @@ async function handleDailyCommand(interaction: ChatInputCommandInteraction) {
   }
 }
 
+function buildFishSellRow(ownerId: string, itemName: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("fish_sell", ownerId, itemName))
+      .setLabel("立即賣掉")
+      .setEmoji("💰")
+      .setStyle(ButtonStyle.Secondary)
+  );
+}
+
 async function handleFishCommand(interaction: ChatInputCommandInteraction) {
   try {
     await interaction.deferReply();
@@ -505,13 +515,57 @@ async function handleFishCommand(interaction: ChatInputCommandInteraction) {
     }
 
     const rarityLabel = RARITY_LABELS[result.item.rarity] ?? result.item.rarity;
-    return interaction.editReply(
-      `🎣 釣到了一隻「${result.item.name}」！（${rarityLabel}）目前擁有 ${result.quantity} 隻，還獲得了 ${result.xpGained} 經驗值。可以用 \`/rpg shop sell\` 賣掉換金幣。`
-    );
+    const embed = new EmbedBuilder()
+      .setAuthor({
+        name: interaction.user.username,
+        iconURL: interaction.user.displayAvatarURL(),
+      })
+      .setTitle("🎣 釣魚成功！")
+      .setDescription(`釣到了一隻「${result.item.name}」！`)
+      .setColor("#3498db" as ColorResolvable)
+      .addFields(
+        { name: "稀有度", value: rarityLabel, inline: true },
+        { name: "目前擁有", value: `${result.quantity} 隻`, inline: true },
+        { name: "獲得經驗", value: `${result.xpGained} ✨`, inline: true }
+      );
+
+    return interaction.editReply({
+      embeds: [embed],
+      components: [buildFishSellRow(interaction.user.id, result.item.name)],
+    });
   } catch (error) {
     console.error("RPG Fish 命令錯誤:", error);
     const message = error instanceof Error ? error.message : String(error);
     return interaction.editReply(`釣魚失敗：${message}`);
+  }
+}
+
+// interactionCreate.ts 會把 "fish_sell:*" 的按鈕點擊導到這裡；只賣掉剛釣到的這一隻，不是全部
+export async function handleFishSellButton(interaction: ButtonInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+
+  const itemName = args[0];
+
+  await interaction.deferUpdate();
+  try {
+    const user = await RPGService.findUserByDiscordId(interaction.user.id);
+    if (!user) throw new Error("找不到你的角色資料");
+
+    const { sellPrice } = await ItemService.sellItem(user.id, itemName);
+
+    const originalEmbed = interaction.message.embeds[0];
+    const embed = originalEmbed
+      ? EmbedBuilder.from(originalEmbed)
+          .setColor("#95a5a6" as ColorResolvable)
+          .addFields({ name: "已賣出", value: `💰 +${sellPrice} 金幣` })
+      : new EmbedBuilder().setDescription(`已賣出，獲得 ${sellPrice} 金幣`);
+
+    await interaction.editReply({ embeds: [embed], components: [] });
+  } catch (error) {
+    // 賣不掉（例如剛好被裝備上、或已經賣完了）不動原本卡片，只用 ephemeral 提示
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
 }
 
