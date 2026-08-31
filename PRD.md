@@ -124,14 +124,16 @@ git fetch origin main --quiet
 # 比對本地 HEAD 跟 origin/main，一樣就直接結束，不用往下跑
 git pull --ff-only origin main
 npm install
-npm run db:migrate      # prisma migrate deploy
-npm run db:seed:fish    # 冪等 upsert，重複跑安全
+npm run db:migrate        # prisma migrate deploy
+npm run db:seed:fish      # 冪等 upsert，重複跑安全
+npm run db:seed:highTier  # 同上
 pm2 restart dc-bot
 npm run deploy || echo "指令註冊失敗，下次部署會自動重試"   # 重新註冊 slash 指令，失敗不擋部署
 ```
 
 - `deploy.sh` 本身**不受版控**，只存在伺服器上（要改的話直接編輯後上傳，不透過 git pull 更新自己）
-- `.env`、`prisma/dev.db` 都不進 git，是當初設定機器時用 `scp` 手動傳過去的；之後這台機器上的 `dev.db` 就是唯一正本，不會再被本地端的檔案覆蓋
+- `.env`、`prisma/dev.db` 都不進 git，是當初設定機器時用 `scp` 手動傳過去的；之後這台機器上的 `dev.db` 就是唯一正本，不會再被本地端的檔案覆蓋。**`.env` 加新變數時記得要重新 `scp` 同步到伺服器**，`git pull` 不會更新它
+- **部署成功／失敗都會私訊通知**（2026-08-31 加）：`deploy.sh` 用 REST API（不需要常駐 gateway 連線）直接私訊 `BACKUP_DM_USER_ID`，成功顯示 `舊hash → 新hash`，失敗顯示卡在哪個步驟；靠 bash 的 `trap ... ERR` 攔截，跟備份用的是同一個收件人
 
 **Log 查看方式**：見第 4 節備份說明旁；指令彙整在對話紀錄裡，之後可以直接問「幫我看 log」。
 
