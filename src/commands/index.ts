@@ -20,15 +20,25 @@ function isLoadableModule(file: string): boolean {
   return path.basename(file, ext) !== "index";
 }
 
-// 供這個檔案與 deploy-commands.ts 共用：掃描 commands 目錄、載入每個指令模組
+// 供這個檔案與 deploy-commands.ts 共用：掃描 commands 目錄、載入每個指令模組。
+// 指令可以是單一檔案（foo.ts），也可以是資料夾（foo/index.ts，太大的指令拆多個檔案時用）；
+// require() 目錄時 Node 本來就會自動找裡面的 index，不用額外處理
 export function loadCommandModules(): { file: string; command: Command }[] {
   const commandsPath = path.join(__dirname);
-  const commandFiles = fs.readdirSync(commandsPath).filter(isLoadableModule);
+  const entries = fs.readdirSync(commandsPath, { withFileTypes: true });
 
-  return commandFiles.map((file) => {
-    const command = require(path.join(commandsPath, file)).default as Command;
-    return { file, command };
-  });
+  const results: { file: string; command: Command }[] = [];
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const command = require(path.join(commandsPath, entry.name)).default as Command;
+      results.push({ file: `${entry.name}/index`, command });
+      continue;
+    }
+    if (!isLoadableModule(entry.name)) continue;
+    const command = require(path.join(commandsPath, entry.name)).default as Command;
+    results.push({ file: entry.name, command });
+  }
+  return results;
 }
 
 // 開機時只把指令載入 client.commands 供本地執行對照，不會呼叫 Discord REST API
