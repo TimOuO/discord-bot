@@ -13,7 +13,10 @@
     "prepare": "npm run build",
     "db:migrate": "prisma migrate deploy",
     "db:seed:fish": "tsx src/scripts/seedFishItems.ts",
-    "db:seed:highTier": "tsx src/scripts/seedHighTierItems.ts"
+    "db:seed:highTier": "tsx src/scripts/seedHighTierItems.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:typecheck": "tsc -p tsconfig.test.json"
   },
   "keywords": [
     "discord",
@@ -35,6 +38,7 @@
     "@types/node": "^22.20.1",
     "nodemon": "^3.0.2",
     "tsx": "^4.23.12",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   }
 }
