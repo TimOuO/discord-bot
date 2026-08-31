@@ -6,7 +6,7 @@ import {
   ColorResolvable,
   MessageFlags,
 } from "discord.js";
-import { RPGService, DailyClaimResult } from "../services/rpgService";
+import { RPGService, DailyClaimResult, xpThresholdForLevel } from "../services/rpgService";
 import {
   ItemService,
   TYPE_LABELS,
@@ -177,7 +177,7 @@ async function handleStartCommand(interaction: ChatInputCommandInteraction) {
         { name: "等級", value: `${user.level}`, inline: true },
         {
           name: "經驗值",
-          value: `${user.xp}/${user.level * 100}`,
+          value: `${user.xp}/${xpThresholdForLevel(user.level)}`,
           inline: true,
         },
         { name: "金幣", value: `${user.gold}`, inline: true },
@@ -221,7 +221,7 @@ async function handleProfileCommand(interaction: ChatInputCommandInteraction) {
         { name: "等級", value: `${user.level}`, inline: true },
         {
           name: "經驗值",
-          value: `${user.xp}/${user.level * 100}`,
+          value: `${user.xp}/${xpThresholdForLevel(user.level)}`,
           inline: true,
         },
         { name: "金幣", value: `${user.gold}`, inline: true },
@@ -353,7 +353,7 @@ async function handleBattleCommand(interaction: ChatInputCommandInteraction) {
           { name: "等級", value: `${battleResult.user.level}`, inline: true },
           {
             name: "經驗值",
-            value: `${battleResult.user.xp}/${battleResult.user.level * 100}`,
+            value: `${battleResult.user.xp}/${xpThresholdForLevel(battleResult.user.level)}`,
             inline: true,
           },
           { name: "金幣", value: `${battleResult.user.gold}`, inline: true }

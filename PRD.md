@@ -2,13 +2,25 @@
 
 > 從 VS Code 本機編輯歷史（2025-06-13 的一次 AI 聊天紀錄）救回來的產品規劃文件，原本沒有存成專案檔案。
 
-## 1. 功能範圍
+## 1. 功能範圍（2026-08-31 對照實際程式碼更新）
 
 | 模組 | Slash 指令 | 功能摘要 |
 | --- | --- | --- |
-| RPG | `/rpg start` `/battle` `/daily` `/profile` `/inventory` `/shop` `/equip` | 放置型戰鬥、經驗、金幣、道具（已刪除 `/rank` 排名指令） |
+| RPG 核心 | `/rpg start` `/rpg profile` `/rpg inventory` `/rpg battle` `/rpg daily` `/rpg fish` `/rpg equip` `/rpg use` | 放置型戰鬥、經驗、金幣、裝備、釣魚小遊戲 |
+| RPG 商店 | `/rpg shop list` `/rpg shop buy` `/rpg shop sell` | 買賣道具，賣價固定原價 50%；釣到的魚只能賣不能買 |
+| 小遊戲 | `/random` `/rps` `/1a2b` | 猜數字（頻道共用）、剪刀石頭布、1A2B 猜數字（個人專屬） |
+| 系統/工具 | `/ping` `/help` `/status`（Owner 限定） | 延遲測試、指令自動列表、手動改機器人顯示狀態 |
 | ~~Gemini AI~~ | ~~`/ask <prompt>` `/ai chat`~~ | 已整個移除（2026-08-29 決定拔掉），不再是這個 bot 的功能範圍 |
-| 管理 / QOL | `/config <module>` `/stats` `/restart` | Owner 專用設定、健檢、錯誤 Embed |
+| ~~管理 / QOL~~ | ~~`/config <module>` `/stats` `/restart`~~ | 從沒實作過，也不在任何路線圖裡，移出規劃範圍 |
+
+**背景服務（非指令觸發，由事件監聽自動運作）：**
+
+| 服務 | 觸發時機 | 功能摘要 |
+| --- | --- | --- |
+| 語音頻道自動簽到 | 使用者加入任一已設定的語音頻道 | 自動幫該使用者跑一次跟 `/rpg daily` 相同的簽到邏輯，並在指定頻道公告 |
+| 語音頻道狀態輪替 | 每日台北時間換日 | 從詞庫隨機選一句話更新對應語音頻道的狀態文字 |
+| 關鍵字彩蛋回覆 | 特定使用者發送訊息符合關鍵字規則 | 資料驅動的規則表，支援回覆文字/表情/延遲動作 |
+| 每日資料庫備份 | 每日台北時間換日 | 見第 4 節「`prisma/dev.db` 單點故障風險」 |
 
 ## 2. 里程碑 & 驗收
 
@@ -18,23 +30,29 @@
 | M1 | RPG 核心 `/rpg start /battle` + SQLite | 重啟後資料仍在 |
 | M2 | `/daily /inventory /shop /equip`；升級公式 | 日常冷卻運作、購物能加道具 |
 | ~~M3~~ | ~~`/ask` & `/ai chat` Thread 整合~~ | 已移除，AI 功能不再規劃 |
-| M4 | Neon Free & GitHub Actions | `prisma migrate deploy` OK；CI 綠燈 |
-| M5 | 監控（Winston + Sentry）& Beta | 24 h 無 fatal；log 統計戰鬥次量 |
-| M6 | Release 1.0 | Docker Compose 一鍵部署 |
+| ~~M4~~ | ~~Neon Free & GitHub Actions~~ | 已用其他方案取代，見下方調整點 |
+| M5 | 崩潰通知（輕量版） | PM2 崩潰時打 webhook 通知到 Discord |
+| ~~M6~~ | ~~Release 1.0（Docker Compose 一鍵部署）~~ | 不需要，見下方調整點 |
 
 **調整點：**
 
 - 原本 M2 的「/rank 排行榜」已移除；M2 現專注於經濟與道具系統。
-- 若將來要加排行榜，可作 **M7** 擴充：只需新增 `/rank` 指令 + XP DESC 查詢。
+- 若將來要加排行榜，可作 **M7** 擴充：只需新增 `/rank` 指令 + XP DESC 查詢（後續併入第 7 節路線圖的「排行榜」項目）。
+- **M4 已用其他方案取代（2026-08-31）**：資料庫從頭到尾都是 SQLite，沒有換成 Neon（Postgres）；部署也不是走 GitHub Actions CI，而是 Oracle Cloud VM + 主機端 cron 輪詢 `git pull` 自動部署（見「伺服器部署」相關紀錄）。
+- **M5 降級（2026-08-31）**：完整的 Winston + Sentry 監控對 2 人用的 bot 太重，降級成「PM2 崩潰時發 webhook 通知到 Discord」這種輕量版本；PM2 本身已經會自動重啟，只是還不會主動通知人。
+- **M6 標記不需要（2026-08-31）**：bot 是直接裝 Node.js 跑在單一台 VM 上、PM2 常駐，不是容器化部署；用 Docker Compose 包起來對這個規模只有額外複雜度，沒有實質好處。
 
-## 3. 資料模型
+## 3. 資料模型（2026-08-31 更新，改為指向唯一事實來源）
 
-現有 `User` / `Item` schema 不變；排行榜只需額外查詢，不需新欄位，因此刪除並不影響資料表。
+Schema 從 M2 開始已經改了好幾次（新增 `effectType`、`rarity`、`lastFish` 等），這裡不逐欄位複製一份清單——那份清單只會再度跟實際 schema 脫節。**實際欄位定義一律以 [`prisma/schema.prisma`](prisma/schema.prisma) 為準**，改 schema 時不用回來同步更新這裡。
+
+現有的模型：`User`（角色狀態、各種 `lastXxx` 冷卻時間戳記）、`Item`（含 `type`/`rarity`/`effectType`/`effectValue`）、`Inventory`（使用者與道具的多對多、含數量）、`EquippedItem`（四個裝備欄位）。相關設計決策見 [ADR 0001](docs/adr/0001-effective-stats-computed-not-stored.md)、[ADR 0002](docs/adr/0002-item-effect-type-field.md)。
 
 ## 4. 風險與非功能性需求
 
 - 「排名演算法成本」風險已隨 `/rank` 移除而不需考慮，其餘項維持。
-- 性能、測試覆蓋、零成本目標不變。
+- 性能、測試覆蓋、零成本目標不變（**測試覆蓋目前實際上是 0**，專案裡沒有任何自動化測試，這個目標從沒被實際推進過，先誠實記錄）。
+- **`prisma/dev.db` 單點故障風險（2026-08-31 已緩解）**：資料庫只存在 Oracle VM 一份，機器或磁碟出問題會讓兩人進度全部消失。已實作 `backupService.ts`：每天用 `better-sqlite3` 的線上備份 API 產生快照、保留 7 天，並透過 Discord DM 私訊給 owner 做異地備份，不用另外接雲端儲存服務。
 
 ## 5. 下一步（原始規劃）
 
@@ -60,6 +78,96 @@
 
 - 怪物戰鬥勝利時掉落道具（目前 `/battle` 只給金幣跟經驗值，完全沒有掉落機制）。若要做，需要額外設計掉落機率、掉落表跟稀有度對應。
 
+## 7. RPG 內容擴充路線圖（grilling 結論，2026-08-31）
+
+參考 [nuorpg.com](https://nuorpg.com/docs/)（別人做的 Discord RPG bot）功能清單，挑出適合這個 2 人小型 bot 的部分，透過 `/grilling` 排出優先順序：
+
+| 順序 | 功能 | 相依 | 開發成本 | 狀態 |
+| --- | --- | --- | --- | --- |
+| - | `/rpg fish` 釣魚 | 無 | 低 | ✅ 已完成（2026-08-30，見 `327e0cd`） |
+| 1 | 採集 | 無 | 低 | ⬜ 未開始（跟釣魚同一套 pattern：冷卻 + 加權隨機材料，換一批礦石/木材類道具） |
+| 2 | 排行榜 | 無 | 極低 | ⬜ 未開始（純查詢 `User` 排序，不用改 schema；即原本規劃的 M7） |
+| 3 | 鍛造 | 採集/釣魚（要先有材料） | 中 | ⬜ 未開始（材料換裝備，需要新增 Recipe 概念） |
+| 4 | 地下城（進階戰鬥） | 建立在現有 `battle()` 上 | 中 | ⬜ 未開始（多階段戰鬥、更好獎勵） |
+| 5 | 冒險/探索 | 無 | 中 | ⬜ 未開始（單指令隨機事件：金幣/經驗/道具/遇敵） |
+| 6 | 農場（種植→等待→收成） | 無 | 中高 | ⬜ 未開始（跟現有即時結果的 cooldown 模式不同，是「種下去要等」的延遲收成機制） |
+
+**排序標準**：相依順序優先（有前置關係的先做前置），其餘按開發成本由低到高。
+
+**明確不做的項目（原因）**：
+
+- 職業殿堂、公會：2 人用的伺服器意義不大
+- 幻化造型、銘文刻印、套裝共鳴：深度裝備系統，投入產出比低
+- 夢境試煉：目前沒有終局內容可對接
+- 體力系統：要等活動數量夠多才有意義，現在做只是徒增操作摩擦
+
+## 8. 部署與維運架構（2026-08-31 補記）
+
+Bot 24/7 跑在 Oracle Cloud「Always Free」的一台 VM 上，之前完全沒有文件記錄，這裡補上：
+
+**主機規格**
+
+- Shape：`VM.Standard.E2.1.Micro`（1 OCPU / 1GB RAM，x86），另外手動加了 2GB swap 應付 `npm install` 編譯時的記憶體高峰
+- 系統：Ubuntu 24.04，region `ap-tokyo-1`
+- 公用 IP：**臨時（Ephemeral）**，不是保留 IP——如果這台實例被刪除重建，IP 會換掉，需要重新設定 SSH 連線用的位址
+- SSH 存取憑證（金鑰位置等）刻意不寫在這份公開文件裡，避免曝露在公開 repo
+
+**程式碼與常駐執行**
+
+- 專案 clone 在 `/home/ubuntu/dc-bot`（跟 GitHub repo `TimOuO/discord-bot` 的 `main` 分支同步）
+- 用 **PM2** 常駐（process 名稱 `dc-bot`），已設定 `pm2 startup`（systemd）+ `pm2 save`，機器重開機會自動復原
+
+**自動部署（`~/dc-bot/deploy.sh`，由 cron 每 5 分鐘觸發一次）**
+
+```bash
+git fetch origin main --quiet
+# 比對本地 HEAD 跟 origin/main，一樣就直接結束，不用往下跑
+git pull --ff-only origin main
+npm install
+npm run db:migrate      # prisma migrate deploy
+npm run db:seed:fish    # 冪等 upsert，重複跑安全
+pm2 restart dc-bot
+npm run deploy || echo "指令註冊失敗，下次部署會自動重試"   # 重新註冊 slash 指令，失敗不擋部署
+```
+
+- `deploy.sh` 本身**不受版控**，只存在伺服器上（要改的話直接編輯後上傳，不透過 git pull 更新自己）
+- `.env`、`prisma/dev.db` 都不進 git，是當初設定機器時用 `scp` 手動傳過去的；之後這台機器上的 `dev.db` 就是唯一正本，不會再被本地端的檔案覆蓋
+
+**Log 查看方式**：見第 4 節備份說明旁；指令彙整在對話紀錄裡，之後可以直接問「幫我看 log」。
+
+**還沒做、算是已知缺口**：VM 的建立過程（Console 點擊步驟）沒有腳本化，重建要重新手動跑一次；沒有自動化的「VM 健康檢查」告警（例如整台機器沒有回應時不會有人主動通知）。
+
+## 9. 互動元件（按鈕/選單）擴充（grilling 結論，2026-08-31）
+
+背景：`/rpg shop sell` 想支援「全部賣掉」，發現 Discord 的 Integer 參數沒辦法輸入文字，順勢討論出要用**按鈕**而不是指令參數處理這類「快捷操作」；接著擴大盤點了全部指令的回覆卡片，一併規劃。
+
+**技術架構**：
+
+- 所有按鈕/選單的 `customId` 直接編碼「誰能點、要做什麼」（例如 `inv_page:<userId>:<頁碼>`），不額外用記憶體存狀態——背包/商店資料本來就是即時查資料庫，只要知道「第幾頁」「哪個道具」就能重新算，機器人重啟也不會讓按鈕失效
+- 每個按鈕/選單點擊都要檢查「點的人是不是當初下指令的人」，不是的話擋掉並提示（沿用 `interaction.user.id` 比對）
+- `interactionCreate.ts` 要新增 `isButton()` / `isStringSelectMenu()` 的分派邏輯
+
+**卡片盤點與決定**：
+
+| 卡片 | 決定 | 備註 |
+| --- | --- | --- |
+| `/rpg battle` 結果 | ✅ 加「再戰一次」按鈕 | 驗證整套按鈕架構的第一步 |
+| `/rpg fish` 結果 | ✅ 加「立即賣掉」按鈕 | 跟 shop sell 是同一套邏輯 |
+| `/rpg shop sell` 結果 | ✅ 改成 embed + 加「全部賣掉」按鈕 | 原本是純文字回覆，這次順便改成 embed 風格統一 |
+| `/rpg inventory` | ✅ 加換頁按鈕 + 下拉選單選道具 → 跳出「裝備／賣掉」按鈕 | 一則訊息最多 25 個按鈕，道具多會爆版，改用 Select Menu（單一元件可放 25 個選項）+ 換頁解決 |
+| `/rpg shop list` | ✅ 加換頁按鈕 + 下拉選單選商品 → 跳出「購買」按鈕 | 同上，商品多的話也會超過按鈕上限 |
+| `/rpg profile`、`/rpg start`、每日獎勵 embed、`/help` | ❌ 不加 | 沒有明顯值得重複觸發的操作 |
+
+**實作順序**（由簡到繁，逐步驗收）：
+
+1. `/rpg battle` 結果加「再戰一次」按鈕
+2. `/rpg fish` 結果加「立即賣掉」按鈕
+3. `/rpg shop sell` 改成 embed + 加「全部賣掉」按鈕
+4. `/rpg inventory` 換頁 + 選單 + 裝備/賣掉快捷操作
+5. `/rpg shop list` 換頁 + 選單 + 購買快捷操作
+
+**額外決定（同一次討論一併提出）**：卡片要顯示下指令的人的頭像（用 `EmbedBuilder.setAuthor` 帶 `iconURL`，之後每張新卡片都比照辦理）。
+
 ## 目前進度對照（2026-08-29 更新）
 
 | 里程碑 | 狀態 | 備註 |
@@ -68,6 +176,6 @@
 | M1 | ✅ | `/rpg start`、`/battle` + SQLite 已完成 |
 | M2 | ✅ | `/daily`、`/shop`（買/賣）、`/inventory`、`/equip`、`/use` 皆已完成，並通過端對端測試；`/battle` 已改用裝備加成後的有效屬性計算傷害 |
 | ~~M3~~ | ❌ 已移除 | `/ai`、Gemini 服務、`@google/generative-ai` 依賴全部拔掉，`GEMINI_API_KEY` 不再是啟動必要條件 |
-| M4 | ⬜ 未開始 | 尚未設定 Neon / CI |
-| M5 | ⬜ 未開始 | 尚未加入監控 |
-| M6 | ⬜ 未開始 | `docker-compose.yml` 目前是空殼，尚無 `Dockerfile` |
+| ~~M4~~ | ❌ 已用其他方案取代 | 改用 Oracle Cloud VM（SQLite + PM2 + cron 輪詢自動部署），沒有用到 Neon 或 GitHub Actions |
+| M5 | ⬜ 未開始（已降級） | 範圍縮小為「PM2 崩潰時 webhook 通知」，還沒實作 |
+| ~~M6~~ | ❌ 標記不需要 | 已直接部署在 VM 上正常運作，不需要 Docker 化 |

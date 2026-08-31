@@ -1,6 +1,7 @@
 import { ActivityType } from "discord.js";
 import { ExtendedClient } from "../structures/ExtendedClient";
 import { startDailyVoiceStatusRotation } from "../services/voiceStatusService";
+import { startDailyBackup } from "../services/backupService";
 
 export default (client: ExtendedClient): void => {
   client.on("clientReady", () => {
@@ -19,5 +20,6 @@ export default (client: ExtendedClient): void => {
     });
 
     startDailyVoiceStatusRotation(client.rest);
+    startDailyBackup(client);
   });
 };

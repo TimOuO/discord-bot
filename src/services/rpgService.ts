@@ -21,6 +21,12 @@ const FISH_TABLE: { name: string; weight: number }[] = [
   { name: "黃金鯉魚", weight: 1 },
 ];
 
+// 升到某等級需要的「累計」總經驗值，平方成長：等級越高，落差越大
+// 舊公式是純線性（level*100），導致等級越高完全沒有變難，18 級只要 1800 經驗
+export function xpThresholdForLevel(level: number): number {
+  return 50 * level * level;
+}
+
 function pickWeightedFish(): string {
   const totalWeight = FISH_TABLE.reduce((sum, fish) => sum + fish.weight, 0);
   let roll = randomInt(0, totalWeight);
@@ -192,7 +198,7 @@ export class RPGService {
 
       // 用迴圈處理單場戰鬥獲得的經驗值一次跨過多個等級門檻的情況
       let newLevel = currentLevel;
-      while (newXP >= newLevel * 100) {
+      while (newXP >= xpThresholdForLevel(newLevel)) {
         newLevel++;
       }
       const levelsGained = newLevel - currentLevel;
@@ -218,7 +224,8 @@ export class RPGService {
               }
             : {}),
           // health 取決於這場戰鬥模擬出的結果，不是相對資料庫舊值的增減，所以維持絕對值寫入
-          health: Math.min(userHealth + 10, newMaxHealth),
+          // 升級的話直接補滿；沒升級才維持原本「贏了回一點血」的規則
+          health: levelsGained > 0 ? newMaxHealth : Math.min(userHealth + 10, newMaxHealth),
         },
       });
     } else {
