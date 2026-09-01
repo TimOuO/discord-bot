@@ -4,6 +4,57 @@ import { ItemService } from "./itemService";
 import { createTestUser, createTestItem } from "../../test/helpers";
 import prisma from "./dbService";
 
+// 跟 rpgService.ts 的 FISH_TABLE/GATHER_TABLE 對應：battle() 額外事件的道具獎勵、fish()/gather() 本身
+// 都要抽到這些名字，放在檔案最上層用同一個 beforeAll 種好，不用管哪個 describe 先跑
+const FISH_NAMES = [
+  "小魚乾", "泥鰍", "吳郭魚",
+  "虹鱒", "鯖魚", "花枝",
+  "銀鱗鮭", "龍虎斑", "紅魽",
+  "深海鮟鱇魚", "電鰻", "小鯊魚",
+  "黃金鯉魚", "傳說錦鯉", "神秘魚王",
+];
+
+const GATHER_NAMES = [
+  "樹枝", "石頭", "麻繩",
+  "鐵礦", "煤炭", "硬木",
+  "銀礦", "玉石", "陳年木材",
+  "金礦", "藍水晶", "魔力碎片",
+  "紫水晶", "星隕石", "遠古符文石",
+];
+
+beforeAll(async () => {
+  for (const name of FISH_NAMES) {
+    await prisma.item.upsert({
+      where: { name },
+      create: {
+        name,
+        description: "測試用魚",
+        type: "fish",
+        rarity: "common",
+        cost: 10,
+        effectType: "none",
+        effectValue: 0,
+      },
+      update: {},
+    });
+  }
+  for (const name of GATHER_NAMES) {
+    await prisma.item.upsert({
+      where: { name },
+      create: {
+        name,
+        description: "測試用材料",
+        type: "material",
+        rarity: "common",
+        cost: 10,
+        effectType: "none",
+        effectValue: 0,
+      },
+      update: {},
+    });
+  }
+});
+
 describe("RPGService.getOrCreateUser", () => {
   it("建立新使用者後，可以用同一個 discordUserId 查回同一筆資料", async () => {
     const discordUserId = `test-getorcreate-${Date.now()}`;
@@ -108,6 +159,9 @@ describe("RPGService.battle", () => {
   it("有生命上限加成的裝備時，effectiveMaxHealth 要包含裝備加成，不能只回傳資料庫的基礎值", async () => {
     const { discordUserId, user } = await createTestUser({
       gold: 1000,
+      // 等級拉高只是為了讓升級門檻高到不可能被打贏後額外事件的獎勵經驗值碰到，
+      // 避免這個斷言偶爾因為升級全滿血、蓋掉這裡要驗證的「基礎值 + 裝備加成」而變得不穩定
+      level: 999,
       attack: 9999,
       defense: 9999,
       health: 100,
@@ -145,9 +199,11 @@ describe("RPGService.battle", () => {
     const result = await RPGService.battle(discordUserId);
 
     // 攻擊力很低但每回合都能造成至少 1 點傷害，敵人終究會被磨死；
-    // 100% 閃避讓玩家完全不會掉血，贏了之後只會有原本就有的「+10」勝利回血，不會有任何戰鬥損血
+    // 100% 閃避讓玩家完全不會掉血，贏了之後至少會有原本就有的「+10」勝利回血；
+    // 打贏後還有機率額外觸發菁英怪（同樣吃 100% 閃避、不可能輸），或額外事件的經驗值把等級推過門檻、
+    // 觸發升級全滿血，這兩種情況都只會讓血量「更高」，不會比 +10 低
     expect(result.result).toBe("win");
-    expect(result.healthDelta).toBe(10);
+    expect(result.healthDelta).toBeGreaterThanOrEqual(10);
   });
 
   it("金幣加成裝備存在時，戰鬥獲得的金幣要比沒有加成時可能拿到的上限還高", async () => {
@@ -170,6 +226,51 @@ describe("RPGService.battle", () => {
     // +200% 加成後一定會超過這個沒加成時能拿到的最高值
     expect(result.result).toBe("win");
     expect(result.goldGained).toBeGreaterThan(13);
+  });
+
+  it("打輸主戰鬥不會擲額外事件", async () => {
+    const { discordUserId } = await createTestUser({ attack: 1, defense: 0, health: 1, maxHealth: 100 });
+
+    const result = await RPGService.battle(discordUserId);
+
+    expect(result.result).toBe("lose");
+    expect(result.bonusEvents).toEqual([]);
+  });
+
+  it("打贏後有機率額外觸發金幣/道具/菁英怪事件，型別要是這三種之一", async () => {
+    const { discordUserId } = await createTestUser({ attack: 9999, defense: 9999 });
+
+    // 額外事件是機率性的（35%/20% 各自獨立），重試到至少出現一次為止，避免測試因為運氣不好而不穩定
+    let result;
+    for (let i = 0; i < 50; i++) {
+      result = await RPGService.battle(discordUserId);
+      if (result.bonusEvents.length > 0) break;
+      await prisma.user.update({ where: { userId: discordUserId }, data: { lastBattle: null } });
+    }
+
+    expect(result?.bonusEvents.length).toBeGreaterThan(0);
+    for (const event of result!.bonusEvents) {
+      expect(["gold", "item", "elite"]).toContain(event.type);
+    }
+  });
+
+  it("額外事件抽到道具時，要真的把道具加進背包，不是只回傳道具資訊", async () => {
+    const { discordUserId, user } = await createTestUser({ attack: 9999, defense: 9999 });
+
+    let itemEvent;
+    for (let i = 0; i < 60; i++) {
+      const result = await RPGService.battle(discordUserId);
+      itemEvent = result.bonusEvents.find((e) => e.type === "item");
+      if (itemEvent) break;
+      await prisma.user.update({ where: { userId: discordUserId }, data: { lastBattle: null } });
+    }
+
+    expect(itemEvent).toBeDefined();
+    if (itemEvent && itemEvent.type === "item") {
+      const inventory = await ItemService.getInventory(user.id);
+      const row = inventory.find((r) => r.itemId === itemEvent.item.id);
+      expect(row?.quantity).toBe(itemEvent.quantity);
+    }
   });
 });
 
@@ -238,32 +339,6 @@ describe("RPGService.dungeon", () => {
 });
 
 describe("RPGService.fish", () => {
-  const FISH_NAMES = [
-    "小魚乾", "泥鰍", "吳郭魚",
-    "虹鱒", "鯖魚", "花枝",
-    "銀鱗鮭", "龍虎斑", "紅魽",
-    "深海鮟鱇魚", "電鰻", "小鯊魚",
-    "黃金鯉魚", "傳說錦鯉", "神秘魚王",
-  ];
-
-  beforeAll(async () => {
-    for (const name of FISH_NAMES) {
-      await prisma.item.upsert({
-        where: { name },
-        create: {
-          name,
-          description: "測試用魚",
-          type: "fish",
-          rarity: "common",
-          cost: 10,
-          effectType: "none",
-          effectValue: 0,
-        },
-        update: {},
-      });
-    }
-  });
-
   it("尚未開始遊戲的使用者回傳 not_started", async () => {
     const result = await RPGService.fish("never-started-fisher");
     expect(result.status).toBe("not_started");
@@ -331,32 +406,6 @@ describe("RPGService.fish", () => {
 });
 
 describe("RPGService.gather", () => {
-  const GATHER_NAMES = [
-    "樹枝", "石頭", "麻繩",
-    "鐵礦", "煤炭", "硬木",
-    "銀礦", "玉石", "陳年木材",
-    "金礦", "藍水晶", "魔力碎片",
-    "紫水晶", "星隕石", "遠古符文石",
-  ];
-
-  beforeAll(async () => {
-    for (const name of GATHER_NAMES) {
-      await prisma.item.upsert({
-        where: { name },
-        create: {
-          name,
-          description: "測試用材料",
-          type: "material",
-          rarity: "common",
-          cost: 10,
-          effectType: "none",
-          effectValue: 0,
-        },
-        update: {},
-      });
-    }
-  });
-
   it("尚未開始遊戲的使用者回傳 not_started", async () => {
     const result = await RPGService.gather("never-started-gatherer");
     expect(result.status).toBe("not_started");

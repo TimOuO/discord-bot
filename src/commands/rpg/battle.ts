@@ -9,8 +9,21 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService, xpThresholdForLevel } from "../../services/rpgService";
+import type { BattleBonusEvent } from "../../services/rpgService";
 import { parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 import { sectionField, chip, progressBar } from "../../utils/embeds";
+
+function formatBonusEvent(event: BattleBonusEvent): string {
+  if (event.type === "gold") {
+    return `💰 意外拾獲了 ${chip(event.amount)} 金幣！`;
+  }
+  if (event.type === "item") {
+    return `🎒 順手發現了「${event.item.name}」，目前擁有 ${chip(event.quantity)} 個（經驗 +${chip(event.xpGained)}）`;
+  }
+  return event.result === "win"
+    ? `⚔️ 途中遭遇菁英「${event.enemyName}」Lv.${event.enemyLevel}，激戰 ${chip(event.rounds)} 回合後獲勝！經驗 +${chip(event.xpGained)}、金幣 +${chip(event.goldGained)}`
+    : `💀 途中遭遇菁英「${event.enemyName}」Lv.${event.enemyLevel}，激戰 ${chip(event.rounds)} 回合後不敵，血量再次受創……`;
+}
 
 function buildBattleRematchRow(ownerId: string): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -39,6 +52,10 @@ async function runBattleAndBuildReply(userId: string, username: string, avatarUR
         `金幣 ${chip(battleResult.user.gold)}`,
       ])
     );
+
+  if (battleResult.bonusEvents.length > 0) {
+    embed.addFields(sectionField("🎁", "額外事件", battleResult.bonusEvents.map(formatBonusEvent)));
+  }
 
   embed.setFooter({ text: battleResult.result === "win" ? "恭喜獲勝！" : "不幸失敗，休息一下再來吧！" });
 

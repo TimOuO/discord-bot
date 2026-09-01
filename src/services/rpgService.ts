@@ -10,6 +10,11 @@ const DUNGEON_FLOOR_COUNT = 4;
 
 const ENEMY_TYPES = ["哥布林", "史萊姆", "骷髏戰士", "狼人", "山賊", "食人魔", "惡靈", "巨蜥"];
 const DUNGEON_BOSS_TYPES = ["地城領主", "遠古巨龍", "深淵魔王", "屍骨君王", "熔岩巨人", "暗影統領"];
+const ELITE_ENEMY_TYPES = ["菁英哥布林王", "血眼狼王", "暗影刺客", "巨人守衛", "毒沼巫妖", "鋼鐵傀儡"];
+
+// 打贏主戰鬥後，這兩個是各自獨立的骰子，都判斷過（可能同一場戰鬥兩個都中，也可能都沒中）
+const BATTLE_LOOT_EVENT_CHANCE = 0.35;
+const BATTLE_ELITE_EVENT_CHANCE = 0.2;
 
 interface EnemyEncounter {
   name: string;
@@ -118,6 +123,89 @@ function pickFromWeightedTiers(tiers: WeightedTier[]): string {
   }
   const lastTier = tiers[tiers.length - 1];
   return lastTier.names[randomInt(0, lastTier.names.length)];
+}
+
+export type BattleBonusEvent =
+  | { type: "gold"; amount: number }
+  | { type: "item"; item: Item; quantity: number; xpGained: number }
+  | {
+      type: "elite";
+      enemyName: string;
+      enemyLevel: number;
+      result: "win" | "lose";
+      rounds: number;
+      xpGained: number;
+      goldGained: number;
+    };
+
+// 打贏主戰鬥後才會擲這兩個獨立的骰子（35% 金幣/道具、20% 菁英怪，互不影響，可能同時中）；
+// 菁英怪對打一場用跟主戰鬥、地下城一樣的 simulateCombat()，輸了一樣會把血量砍到有效上限的 30%，
+// 是真的有風險的額外戰鬥，不是穩賺不賠的獎勵
+async function rollBattleBonusEvent(
+  user: User,
+  effectiveStats: EffectiveStats,
+  currentHealth: number
+): Promise<{ events: BattleBonusEvent[]; xpGained: number; goldGained: number; finalHealth: number }> {
+  const events: BattleBonusEvent[] = [];
+  let xpGained = 0;
+  let goldGained = 0;
+  let finalHealth = currentHealth;
+
+  if (Math.random() < BATTLE_LOOT_EVENT_CHANCE) {
+    if (Math.random() < 0.5) {
+      const amount = Math.round((20 + user.level * 5 + randomInt(0, 10)) * (1 + effectiveStats.goldBonus / 100));
+      goldGained += amount;
+      events.push({ type: "gold", amount });
+    } else {
+      const lootName =
+        Math.random() < 0.5 ? pickFromWeightedTiers(FISH_TABLE) : pickFromWeightedTiers(GATHER_TABLE);
+      const item = await ItemService.findItemByName(lootName);
+      if (item) {
+        const itemXpGained = Math.round(randomInt(2, 6) * (1 + effectiveStats.xpBonus / 100));
+        xpGained += itemXpGained;
+        const inventory = await prisma.inventory.upsert({
+          where: { userId_itemId: { userId: user.id, itemId: item.id } },
+          create: { userId: user.id, itemId: item.id, quantity: 1 },
+          update: { quantity: { increment: 1 } },
+        });
+        events.push({ type: "item", item, quantity: inventory.quantity, xpGained: itemXpGained });
+      }
+    }
+  }
+
+  if (Math.random() < BATTLE_ELITE_EVENT_CHANCE) {
+    const eliteLevel = Math.max(1, user.level + 2 + randomInt(0, 3));
+    const enemy = rollEnemy(eliteLevel, ELITE_ENEMY_TYPES);
+    // 菁英怪比一般敵人明顯更強，不是隨便就能打贏的額外戰鬥
+    enemy.health = Math.round(enemy.health * 1.8);
+    enemy.attack = Math.round(enemy.attack * 1.4);
+
+    const combat = simulateCombat(effectiveStats, enemy, finalHealth);
+    let eliteXpGained: number;
+    let eliteGoldGained = 0;
+    if (combat.result === "win") {
+      eliteXpGained = Math.round((20 + enemy.level * 6 + randomInt(1, 8)) * (1 + effectiveStats.xpBonus / 100));
+      eliteGoldGained = Math.round((15 + enemy.level * 3 + randomInt(0, 8)) * (1 + effectiveStats.goldBonus / 100));
+      finalHealth = Math.min(combat.finalHealth + 10, effectiveStats.maxHealth);
+    } else {
+      eliteXpGained = Math.max(1, Math.round(enemy.level * 2 * (1 + effectiveStats.xpBonus / 100)));
+      finalHealth = Math.max(10, Math.floor(effectiveStats.maxHealth * 0.3));
+    }
+
+    xpGained += eliteXpGained;
+    goldGained += eliteGoldGained;
+    events.push({
+      type: "elite",
+      enemyName: enemy.name,
+      enemyLevel: enemy.level,
+      result: combat.result,
+      rounds: combat.rounds,
+      xpGained: eliteXpGained,
+      goldGained: eliteGoldGained,
+    });
+  }
+
+  return { events, xpGained, goldGained, finalHealth };
 }
 
 const DAILY_RESET_TIMEZONE = "Asia/Taipei";
@@ -247,6 +335,7 @@ export class RPGService {
     rounds: number;
     effectiveMaxHealth: number;
     message: string;
+    bonusEvents: BattleBonusEvent[];
   }> {
     const user = await prisma.user.findUnique({
       where: { userId },
@@ -347,18 +436,67 @@ export class RPGService {
       where: { userId },
     })) as User;
 
+    // 打贏才有資格額外擲「金幣/道具」「菁英怪」兩個獨立事件；跟主戰鬥完全分開結算，
+    // 主戰鬥的數值/測試都不受影響，這邊只是額外疊加上去的第二階段
+    let bonusEvents: BattleBonusEvent[] = [];
+    let finalUser = updatedUser;
+    let finalEffectiveMaxHealth = effectiveMaxHealth;
+
+    if (result === "win") {
+      const postBattleStats = await ItemService.getEffectiveStats(updatedUser.id, {
+        attack: updatedUser.attack,
+        defense: updatedUser.defense,
+        maxHealth: updatedUser.maxHealth,
+      });
+      const bonus = await rollBattleBonusEvent(updatedUser, postBattleStats, updatedUser.health);
+
+      if (bonus.events.length > 0) {
+        bonusEvents = bonus.events;
+
+        const currentLevel = updatedUser.level;
+        const newXP = updatedUser.xp + bonus.xpGained;
+        let newLevel = currentLevel;
+        while (newXP >= xpThresholdForLevel(newLevel)) {
+          newLevel++;
+        }
+        const levelsGained = newLevel - currentLevel;
+        const newMaxHealth = postBattleStats.maxHealth + levelsGained * 10;
+        finalEffectiveMaxHealth = levelsGained > 0 ? newMaxHealth : postBattleStats.maxHealth;
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            xp: { increment: bonus.xpGained },
+            gold: { increment: bonus.goldGained },
+            ...(levelsGained > 0
+              ? {
+                  level: { increment: levelsGained },
+                  attack: { increment: levelsGained * 2 },
+                  defense: { increment: levelsGained },
+                  maxHealth: { increment: levelsGained * 10 },
+                }
+              : {}),
+            health: levelsGained > 0 ? newMaxHealth : bonus.finalHealth,
+          },
+        });
+
+        finalUser = (await prisma.user.findUnique({ where: { userId } })) as User;
+      }
+    }
+
     return {
-      user: updatedUser,
+      user: finalUser,
       enemyName,
       enemyLevel,
       enemyHealth,
       result,
       xpGained,
       goldGained,
-      healthDelta: updatedUser.health - user.health,
+      healthDelta: finalUser.health - user.health,
       rounds,
-      effectiveMaxHealth,
+      effectiveMaxHealth: finalEffectiveMaxHealth,
       message,
+      bonusEvents,
     };
   }
 
