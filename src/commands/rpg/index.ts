@@ -16,6 +16,7 @@ import {
   handleInventorySellButton,
 } from "./inventory";
 import { handleBattleCommand, handleBattleRematchButton } from "./battle";
+import { handleDungeonCommand, handleDungeonRetryButton } from "./dungeon";
 import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
 import { handleFishCommand, handleFishSellButton, handleFishSellAllButton } from "./fish";
 import { handleGatherCommand, handleGatherSellButton, handleGatherSellAllButton } from "./gather";
@@ -44,6 +45,7 @@ import {
 // 按鈕/選單 handler、buildDailyRewardEmbed 給 interactionCreate.ts、voiceStateUpdate.ts 用
 export {
   handleBattleRematchButton,
+  handleDungeonRetryButton,
   handleFishSellButton,
   handleFishSellAllButton,
   handleGatherSellButton,
@@ -82,6 +84,9 @@ export default {
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("battle").setDescription("在 RPG 遊戲中戰鬥")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("dungeon").setDescription("挑戰地下城，連續四層戰鬥，全破有額外獎勵")
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("daily").setDescription("領取每日獎勵")
@@ -204,6 +209,8 @@ export default {
         return handleInventoryCommand(interaction);
       case "battle":
         return handleBattleCommand(interaction);
+      case "dungeon":
+        return handleDungeonCommand(interaction);
       case "daily":
         return handleDailyCommand(interaction);
       case "fish":

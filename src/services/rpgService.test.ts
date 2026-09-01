@@ -173,6 +173,70 @@ describe("RPGService.battle", () => {
   });
 });
 
+describe("RPGService.dungeon", () => {
+  it("使用者不存在時回傳 not_started", async () => {
+    const result = await RPGService.dungeon("never-started-dungeon");
+    expect(result.status).toBe("not_started");
+  });
+
+  it("5 分鐘內再挑戰會被冷卻擋下", async () => {
+    const { discordUserId } = await createTestUser({ attack: 9999, defense: 9999 });
+    await RPGService.dungeon(discordUserId);
+
+    const second = await RPGService.dungeon(discordUserId);
+
+    expect(second.status).toBe("cooldown");
+    if (second.status === "cooldown") {
+      expect(second.remainingSeconds).toBeGreaterThan(0);
+      expect(second.remainingSeconds).toBeLessThanOrEqual(5 * 60);
+    }
+  });
+
+  it("屬性壓倒性領先時，四層全部一擊必殺、不掉血，並且拿到全通關獎勵", async () => {
+    const { discordUserId, user } = await createTestUser({
+      attack: 9999,
+      defense: 9999,
+      health: 100,
+      maxHealth: 100,
+    });
+
+    const result = await RPGService.dungeon(discordUserId);
+
+    expect(result.status).toBe("completed");
+    if (result.status === "completed") {
+      expect(result.clearedAllFloors).toBe(true);
+      expect(result.floors).toHaveLength(4);
+      expect(result.floors.every((f) => f.result === "win" && f.rounds === 1)).toBe(true);
+      expect(result.completionBonusGold).toBeGreaterThan(0);
+      expect(result.completionBonusXp).toBeGreaterThan(0);
+      // 每層一擊必殺、敵人完全沒機會反擊，血量不該掉，加上每層過關的 +10 回血封頂，最終應該還是滿血
+      expect(result.user.health).toBe(result.user.maxHealth);
+      expect(result.user.gold).toBeGreaterThan(user.gold);
+    }
+  });
+
+  it("屬性壓倒性落後時，第一層就落敗，只拿到那一層的安慰經驗值，沒有全通關獎勵", async () => {
+    const { discordUserId } = await createTestUser({
+      attack: 1,
+      defense: 0,
+      health: 1,
+      maxHealth: 100,
+    });
+
+    const result = await RPGService.dungeon(discordUserId);
+
+    expect(result.status).toBe("completed");
+    if (result.status === "completed") {
+      expect(result.clearedAllFloors).toBe(false);
+      expect(result.floors).toHaveLength(1);
+      expect(result.floors[0].result).toBe("lose");
+      expect(result.completionBonusGold).toBe(0);
+      expect(result.completionBonusXp).toBe(0);
+      expect(result.totalXpGained).toBe(result.floors[0].xpGained);
+    }
+  });
+});
+
 describe("RPGService.fish", () => {
   const FISH_NAMES = [
     "小魚乾", "泥鰍", "吳郭魚",

@@ -8,6 +8,7 @@ import {
 } from "discord.js";
 import {
   handleBattleRematchButton,
+  handleDungeonRetryButton,
   handleFishSellButton,
   handleFishSellAllButton,
   handleGatherSellButton,
@@ -30,6 +31,7 @@ import {
 // customId 前綴對應到的按鈕處理函式；新增按鈕時在這裡註冊就好
 const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promise<void>> = {
   battle_rematch: handleBattleRematchButton,
+  dungeon_retry: handleDungeonRetryButton,
   fish_sell: handleFishSellButton,
   fish_sell_all: handleFishSellAllButton,
   gather_sell: handleGatherSellButton,

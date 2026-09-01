@@ -2,6 +2,64 @@ import { Item, User } from "../generated/prisma";
 import { randomInt } from "crypto";
 import prisma from "./dbService";
 import { ItemService } from "./itemService";
+import type { EffectiveStats } from "./itemService";
+
+const BATTLE_COOLDOWN_MS = 30 * 1000;
+const DUNGEON_COOLDOWN_MS = 5 * 60 * 1000;
+const DUNGEON_FLOOR_COUNT = 4;
+
+const ENEMY_TYPES = ["哥布林", "史萊姆", "骷髏戰士", "狼人", "山賊", "食人魔", "惡靈", "巨蜥"];
+const DUNGEON_BOSS_TYPES = ["地城領主", "遠古巨龍", "深淵魔王", "屍骨君王", "熔岩巨人", "暗影統領"];
+
+interface EnemyEncounter {
+  name: string;
+  level: number;
+  health: number;
+  attack: number;
+  defense: number;
+}
+
+function rollEnemy(level: number, namePool: string[]): EnemyEncounter {
+  return {
+    name: namePool[randomInt(0, namePool.length)],
+    level,
+    health: 80 + level * 10,
+    attack: 8 + level * 2,
+    defense: 4 + level,
+  };
+}
+
+// 單場戰鬥的回合模擬，/rpg battle 跟 /rpg dungeon 的每一層都共用同一套規則
+function simulateCombat(
+  effectiveStats: EffectiveStats,
+  enemy: EnemyEncounter,
+  startHealth: number
+): { result: "win" | "lose"; finalHealth: number; rounds: number } {
+  let userHealth = startHealth;
+  let currentEnemyHealth = enemy.health;
+  let rounds = 0;
+
+  while (userHealth > 0 && currentEnemyHealth > 0) {
+    rounds++;
+    let userDamage = Math.max(1, effectiveStats.attack - enemy.defense + randomInt(-2, 3));
+    // 爆擊：裝備 critRate 加成的機率讓這回合傷害翻倍
+    if (randomInt(0, 100) < effectiveStats.critRate) {
+      userDamage *= 2;
+    }
+    currentEnemyHealth -= userDamage;
+
+    if (currentEnemyHealth > 0) {
+      // 閃避：裝備 dodgeRate 加成的機率讓這回合完全不受傷
+      const dodged = randomInt(0, 100) < effectiveStats.dodgeRate;
+      if (!dodged) {
+        const enemyDamage = Math.max(1, enemy.attack - effectiveStats.defense + randomInt(-2, 3));
+        userHealth -= enemyDamage;
+      }
+    }
+  }
+
+  return { result: userHealth > 0 ? "win" : "lose", finalHealth: userHealth, rounds };
+}
 
 const FISH_COOLDOWN_MS = 60 * 1000;
 const EMPTY_CATCH_CHANCE = 0.05;
@@ -87,6 +145,32 @@ function addDaysToDateString(dateStr: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().split("T")[0];
 }
+
+export interface DungeonFloorResult {
+  floor: number;
+  enemyName: string;
+  enemyLevel: number;
+  result: "win" | "lose";
+  rounds: number;
+  xpGained: number;
+  goldGained: number;
+}
+
+export type DungeonResult =
+  | { status: "not_started" }
+  | { status: "cooldown"; remainingSeconds: number }
+  | {
+      status: "completed";
+      floors: DungeonFloorResult[];
+      clearedAllFloors: boolean;
+      totalXpGained: number;
+      totalGoldGained: number;
+      completionBonusGold: number;
+      completionBonusXp: number;
+      user: User;
+      effectiveMaxHealth: number;
+      healthDelta: number;
+    };
 
 export type FishResult =
   | { status: "not_started" }
@@ -174,10 +258,10 @@ export class RPGService {
 
     if (
       user.lastBattle &&
-      new Date().getTime() - new Date(user.lastBattle).getTime() < 30 * 1000
+      new Date().getTime() - new Date(user.lastBattle).getTime() < BATTLE_COOLDOWN_MS
     ) {
       const remainingTime = Math.ceil(
-        (30 * 1000 -
+        (BATTLE_COOLDOWN_MS -
           (new Date().getTime() - new Date(user.lastBattle).getTime())) /
           1000
       );
@@ -191,53 +275,13 @@ export class RPGService {
       maxHealth: user.maxHealth,
     });
 
-    const enemyLevel = Math.max(1, user.level - 1 + randomInt(-1, 3));
-    const enemyTypes = [
-      "哥布林",
-      "史萊姆",
-      "骷髏戰士",
-      "狼人",
-      "山賊",
-      "食人魔",
-      "惡靈",
-      "巨蜥",
-    ];
-    const enemyName = enemyTypes[randomInt(0, enemyTypes.length)];
+    const enemy = rollEnemy(Math.max(1, user.level - 1 + randomInt(-1, 3)), ENEMY_TYPES);
+    const enemyName = enemy.name;
+    const enemyLevel = enemy.level;
+    const enemyHealth = enemy.health;
 
-    const enemyHealth = 80 + enemyLevel * 10;
-    const enemyAttack = 8 + enemyLevel * 2;
-    const enemyDefense = 4 + enemyLevel;
+    const { result, finalHealth: userHealth, rounds } = simulateCombat(effectiveStats, enemy, user.health);
 
-    let userHealth = user.health;
-    let currentEnemyHealth = enemyHealth;
-    let rounds = 0;
-
-    while (userHealth > 0 && currentEnemyHealth > 0) {
-      rounds++;
-      let userDamage = Math.max(
-        1,
-        effectiveStats.attack - enemyDefense + randomInt(-2, 3)
-      );
-      // 爆擊：裝備 critRate 加成的機率讓這回合傷害翻倍
-      if (randomInt(0, 100) < effectiveStats.critRate) {
-        userDamage *= 2;
-      }
-      currentEnemyHealth -= userDamage;
-
-      if (currentEnemyHealth > 0) {
-        // 閃避：裝備 dodgeRate 加成的機率讓這回合完全不受傷
-        const dodged = randomInt(0, 100) < effectiveStats.dodgeRate;
-        if (!dodged) {
-          const enemyDamage = Math.max(
-            1,
-            enemyAttack - effectiveStats.defense + randomInt(-2, 3)
-          );
-          userHealth -= enemyDamage;
-        }
-      }
-    }
-
-    const result = userHealth > 0 ? "win" : "lose";
     let xpGained = 0;
     let goldGained = 0;
     let message = "";
@@ -315,6 +359,123 @@ export class RPGService {
       rounds,
       effectiveMaxHealth,
       message,
+    };
+  }
+
+  // 一次指令連打 DUNGEON_FLOOR_COUNT 層，血量在層與層之間延續、不會回滿；
+  // 中途輸了就整趟結束，但已經過關那幾層的獎勵會保留（不會歸零重來），全部過關再加一筆完成獎勵
+  static async dungeon(discordUserId: string): Promise<DungeonResult> {
+    const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
+    if (!user) return { status: "not_started" };
+
+    if (user.lastDungeon) {
+      const elapsed = Date.now() - new Date(user.lastDungeon).getTime();
+      if (elapsed < DUNGEON_COOLDOWN_MS) {
+        return {
+          status: "cooldown",
+          remainingSeconds: Math.ceil((DUNGEON_COOLDOWN_MS - elapsed) / 1000),
+        };
+      }
+    }
+
+    const effectiveStats = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+
+    const floors: DungeonFloorResult[] = [];
+    let currentHealth = user.health;
+    let totalXpGained = 0;
+    let totalGoldGained = 0;
+    let clearedAllFloors = true;
+
+    for (let floor = 1; floor <= DUNGEON_FLOOR_COUNT; floor++) {
+      const isBoss = floor === DUNGEON_FLOOR_COUNT;
+      // 每層比上一層高兩級左右，最後一層是額外加成的 boss
+      const baseLevel = Math.max(1, user.level - 2 + (floor - 1) * 2 + randomInt(0, 3));
+      const enemy = rollEnemy(baseLevel, isBoss ? DUNGEON_BOSS_TYPES : ENEMY_TYPES);
+      if (isBoss) {
+        enemy.health = Math.round(enemy.health * 1.5);
+        enemy.attack = Math.round(enemy.attack * 1.3);
+      }
+
+      const { result, finalHealth, rounds } = simulateCombat(effectiveStats, enemy, currentHealth);
+
+      let xpGained: number;
+      let goldGained = 0;
+      if (result === "win") {
+        xpGained = Math.round((10 + enemy.level * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100));
+        goldGained = Math.round((5 + enemy.level * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100));
+        // 過關跟 battle() 贏了一樣小回血，但封頂在裝備加成後的上限（等級提升要等整趟結束才結算）
+        currentHealth = Math.min(finalHealth + 10, effectiveStats.maxHealth);
+      } else {
+        xpGained = Math.max(1, Math.round(enemy.level * 2 * (1 + effectiveStats.xpBonus / 100)));
+        // 輸的話跟 battle() 一樣血量掉到有效上限的 30%，整趟到此結束
+        currentHealth = Math.max(10, Math.floor(effectiveStats.maxHealth * 0.3));
+      }
+
+      totalXpGained += xpGained;
+      totalGoldGained += goldGained;
+      floors.push({ floor, enemyName: enemy.name, enemyLevel: enemy.level, result, rounds, xpGained, goldGained });
+
+      if (result === "lose") {
+        clearedAllFloors = false;
+        break;
+      }
+    }
+
+    let completionBonusGold = 0;
+    let completionBonusXp = 0;
+    if (clearedAllFloors) {
+      completionBonusGold = 100 + user.level * 10;
+      completionBonusXp = 50 + user.level * 5;
+      totalGoldGained += completionBonusGold;
+      totalXpGained += completionBonusXp;
+    }
+
+    const currentLevel = user.level;
+    const newXP = user.xp + totalXpGained;
+    let newLevel = currentLevel;
+    while (newXP >= xpThresholdForLevel(newLevel)) {
+      newLevel++;
+    }
+    const levelsGained = newLevel - currentLevel;
+    const newMaxHealth = effectiveStats.maxHealth + levelsGained * 10;
+    const effectiveMaxHealth = levelsGained > 0 ? newMaxHealth : effectiveStats.maxHealth;
+    const finalHealthValue = levelsGained > 0 ? newMaxHealth : Math.min(currentHealth, effectiveMaxHealth);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        xp: { increment: totalXpGained },
+        gold: { increment: totalGoldGained },
+        lastDungeon: new Date(),
+        ...(levelsGained > 0
+          ? {
+              level: { increment: levelsGained },
+              attack: { increment: levelsGained * 2 },
+              defense: { increment: levelsGained },
+              maxHealth: { increment: levelsGained * 10 },
+            }
+          : {}),
+        health: finalHealthValue,
+      },
+    });
+
+    const updatedUser = (await prisma.user.findUnique({ where: { userId: discordUserId } })) as User;
+
+    return {
+      status: "completed",
+      floors,
+      clearedAllFloors,
+      totalXpGained,
+      totalGoldGained,
+      completionBonusGold,
+      completionBonusXp,
+      user: updatedUser,
+      effectiveMaxHealth,
+      healthDelta: updatedUser.health - user.health,
     };
   }
 
