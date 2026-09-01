@@ -57,6 +57,63 @@ const HIGH_TIER_ITEMS = [
     effectType: "maxHealth",
     effectValue: 100,
   },
+  // 藥水原本只到 rare（+150），現在玩家生命上限普遍已經數百，回滿要吃好幾瓶，補上 epic/legendary
+  {
+    name: "極品生命藥水",
+    description: "鍊金術士傾盡心血調配的藥水，回復效果驚人。",
+    type: "potion",
+    rarity: "epic",
+    cost: 500,
+    effectType: "heal",
+    effectValue: 300,
+  },
+  {
+    name: "聖光藥水",
+    description: "教會秘傳的聖光聖水，飲下後傷勢瞬間痊癒。",
+    type: "potion",
+    rarity: "legendary",
+    cost: 1200,
+    effectType: "heal",
+    effectValue: 600,
+  },
+  // 爆擊率/閃避率/金幣加成/經驗加成原本只有神話裝備才有，商店補上比較親民的版本，
+  // 讓玩家不用先鍛造神話裝備就能體驗這些新機制
+  {
+    name: "幸運兔腳",
+    description: "據說能帶來財運的兔腳吊飾。",
+    type: "accessory",
+    rarity: "rare",
+    cost: 400,
+    effectType: "goldBonus",
+    effectValue: 5,
+  },
+  {
+    name: "貓步之靴",
+    description: "穿上後腳步輕盈如貓，躲避攻擊更加靈活。",
+    type: "accessory",
+    rarity: "rare",
+    cost: 400,
+    effectType: "dodgeRate",
+    effectValue: 4,
+  },
+  {
+    name: "智慧護符",
+    description: "刻著古老智慧符文的護符，加快學習與成長的速度。",
+    type: "accessory",
+    rarity: "epic",
+    cost: 900,
+    effectType: "xpBonus",
+    effectValue: 10,
+  },
+  {
+    name: "嗜血之戒",
+    description: "戴上後隱約能感受到嗜血的衝動，出手更容易一擊致命。",
+    type: "accessory",
+    rarity: "epic",
+    cost: 900,
+    effectType: "critRate",
+    effectValue: 8,
+  },
 ];
 
 async function seedHighTierItems() {
