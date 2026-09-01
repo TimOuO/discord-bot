@@ -470,11 +470,31 @@ export class RPGService {
       xpGained = Math.max(1, Math.round(enemyLevel * 2 * (1 + effectiveStats.xpBonus / 100)));
       message = `你被 ${enemyName} 擊敗了，獲得了 ${xpGained} 點經驗值作為安慰。休息一下再來挑戰吧！`;
 
+      // 落敗的安慰經驗值也可能跨過升級門檻，等級/屬性要照樣升，不然經驗值會卡在超過門檻卻不升級的爆表狀態；
+      // 但血量仍然要照落敗懲罰砍到（新）上限的 30%，不能因為剛好升級就用全滿血蓋掉這次的敗北
+      const currentLevel = user.level;
+      const newXP = user.xp + xpGained;
+      let newLevel = currentLevel;
+      while (newXP >= xpThresholdForLevel(newLevel)) {
+        newLevel++;
+      }
+      const levelsGained = newLevel - currentLevel;
+      const newMaxHealthOnLoss = effectiveStats.maxHealth + levelsGained * 10;
+      effectiveMaxHealth = newMaxHealthOnLoss;
+
       await prisma.user.update({
         where: { id: user.id },
         data: {
           xp: { increment: xpGained },
-          health: Math.max(10, Math.floor(effectiveStats.maxHealth * 0.3)),
+          ...(levelsGained > 0
+            ? {
+                level: { increment: levelsGained },
+                attack: { increment: levelsGained * 2 },
+                defense: { increment: levelsGained },
+                maxHealth: { increment: levelsGained * 10 },
+              }
+            : {}),
+          health: Math.max(10, Math.floor(newMaxHealthOnLoss * 0.3)),
           lastBattle: new Date(),
         },
       });
@@ -666,7 +686,13 @@ export class RPGService {
     const levelsGained = newLevel - currentLevel;
     const newMaxHealth = effectiveStats.maxHealth + levelsGained * 10;
     const effectiveMaxHealth = levelsGained > 0 ? newMaxHealth : effectiveStats.maxHealth;
-    const finalHealthValue = levelsGained > 0 ? newMaxHealth : Math.min(currentHealth, effectiveMaxHealth);
+    // 整趟用落敗收尾的話，就算安慰經驗值剛好湊到升級門檻，血量還是要照落敗懲罰砍到（新）上限的 30%，
+    // 不能讓升級的全滿血蓋掉這次的敗北；只有全破才會用升級的全滿血
+    const finalHealthValue = !clearedAllFloors
+      ? Math.max(10, Math.floor(effectiveMaxHealth * 0.3))
+      : levelsGained > 0
+        ? newMaxHealth
+        : Math.min(currentHealth, effectiveMaxHealth);
 
     await prisma.user.update({
       where: { id: user.id },

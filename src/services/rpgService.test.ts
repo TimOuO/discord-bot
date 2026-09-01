@@ -143,6 +143,25 @@ describe("RPGService.battle", () => {
     expect(result.rounds).toBe(1);
   });
 
+  it("落敗時安慰經驗值剛好跨過升級門檻，等級要照樣升，不能讓經驗值卡在超過門檻卻不升級的爆表狀態", async () => {
+    const { discordUserId, user } = await createTestUser({
+      attack: 1,
+      defense: 0,
+      health: 1,
+      maxHealth: 100,
+      xp: xpThresholdForLevel(1) - 1, // 隨便一點安慰經驗值就會跨過門檻，剛好升 1 級
+    });
+
+    const result = await RPGService.battle(discordUserId);
+
+    expect(result.result).toBe("lose");
+    expect(result.user.level).toBeGreaterThan(user.level);
+    expect(result.user.xp).toBeLessThan(xpThresholdForLevel(result.user.level));
+    // 血量仍然要照落敗懲罰砍到（新）上限的 30%，不能因為剛好升級就用全滿血蓋掉這次的敗北
+    expect(result.user.health).toBe(Math.floor(result.effectiveMaxHealth * 0.3));
+    expect(result.user.health).toBeLessThan(result.effectiveMaxHealth);
+  });
+
   it("戰鬥後 30 秒內再戰會被冷卻擋下", async () => {
     const { discordUserId } = await createTestUser({ attack: 9999, defense: 9999 });
     await RPGService.battle(discordUserId);
@@ -423,6 +442,26 @@ describe("RPGService.dungeon", () => {
       expect(result.completionBonusGold).toBe(0);
       expect(result.completionBonusXp).toBe(0);
       expect(result.totalXpGained).toBe(result.floors[0].xpGained);
+    }
+  });
+
+  it("整趟落敗收尾時，就算安慰經驗值剛好湊到升級門檻，血量仍要照落敗懲罰砍到 30%，不能被升級的全滿血蓋掉", async () => {
+    const { discordUserId, user } = await createTestUser({
+      attack: 1,
+      defense: 0,
+      health: 1,
+      maxHealth: 100,
+      xp: xpThresholdForLevel(1) - 1,
+    });
+
+    const result = await RPGService.dungeon(discordUserId);
+
+    expect(result.status).toBe("completed");
+    if (result.status === "completed") {
+      expect(result.clearedAllFloors).toBe(false);
+      expect(result.user.level).toBeGreaterThan(user.level);
+      expect(result.user.health).toBe(Math.floor(result.effectiveMaxHealth * 0.3));
+      expect(result.user.health).toBeLessThan(result.effectiveMaxHealth);
     }
   });
 });
