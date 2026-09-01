@@ -56,7 +56,11 @@ async function runBattleAndBuildReply(userId: string, username: string, avatarUR
     );
 
   if (battleResult.bonusEvents.length > 0) {
-    embed.addFields(sectionField("🎁", "額外事件", battleResult.bonusEvents.map(formatBonusEvent)));
+    const lines = battleResult.bonusEvents.map(formatBonusEvent);
+    if (battleResult.bonusLevelsGained > 0) {
+      lines.push(`🎉 額外事件的經驗值也讓你升級到了 ${chip(battleResult.user.level)} 級，順便全滿血！`);
+    }
+    embed.addFields(sectionField("🎁", "額外事件", lines));
   }
 
   embed.setFooter({ text: battleResult.result === "win" ? "恭喜獲勝！" : "不幸失敗，休息一下再來吧！" });

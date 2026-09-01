@@ -303,6 +303,40 @@ describe("RPGService.battle", () => {
       expect(row?.quantity).toBe(eliteEvent.rareLoot?.quantity);
     }
   });
+
+  it("菁英怪落敗時，就算安慰經驗值剛好湊到升級門檻，血量也要照落敗懲罰砍到 30%，不能被升級的全滿血蓋掉", async () => {
+    // 攻擊夠打贏等級跟自己差不多的主戰鬥敵人，但打不贏數值明顯更強的菁英怪，讓菁英怪確實會輸；
+    // 經驗值卡在升級門檻前一點點，主戰鬥贏了幾乎一定會跨過去，菁英怪的安慰經驗值也可能剛好補上最後一點
+    const { discordUserId } = await createTestUser({
+      level: 1,
+      attack: 15,
+      defense: 10,
+      health: 100,
+      maxHealth: 100,
+      xp: xpThresholdForLevel(2) - 1,
+    });
+
+    let eliteLossResult;
+    for (let i = 0; i < 100; i++) {
+      const result = await RPGService.battle(discordUserId);
+      const eliteEvent = result.bonusEvents.find((e) => e.type === "elite" && e.result === "lose");
+      if (eliteEvent) {
+        eliteLossResult = result;
+        break;
+      }
+      await prisma.user.update({
+        where: { userId: discordUserId },
+        data: { lastBattle: null, level: 1, attack: 15, defense: 10, maxHealth: 100, xp: xpThresholdForLevel(2) - 1 },
+      });
+    }
+
+    expect(eliteLossResult).toBeDefined();
+    if (eliteLossResult) {
+      // 修 bug 前：菁英怪輸了但安慰經驗值湊到升級門檻，反而觸發升級全滿血，血量會等於 maxHealth
+      expect(eliteLossResult.user.health).toBe(Math.floor(eliteLossResult.user.maxHealth * 0.3));
+      expect(eliteLossResult.user.health).toBeLessThan(eliteLossResult.user.maxHealth);
+    }
+  });
 });
 
 describe("RPGService.dungeon", () => {

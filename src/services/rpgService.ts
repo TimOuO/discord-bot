@@ -363,6 +363,7 @@ export class RPGService {
     effectiveMaxHealth: number;
     message: string;
     bonusEvents: BattleBonusEvent[];
+    bonusLevelsGained: number;
   }> {
     const user = await prisma.user.findUnique({
       where: { userId },
@@ -468,6 +469,7 @@ export class RPGService {
     let bonusEvents: BattleBonusEvent[] = [];
     let finalUser = updatedUser;
     let finalEffectiveMaxHealth = effectiveMaxHealth;
+    let bonusLevelsGained = 0;
 
     if (result === "win") {
       const postBattleStats = await ItemService.getEffectiveStats(updatedUser.id, {
@@ -480,32 +482,49 @@ export class RPGService {
       if (bonus.events.length > 0) {
         bonusEvents = bonus.events;
 
-        const currentLevel = updatedUser.level;
-        const newXP = updatedUser.xp + bonus.xpGained;
-        let newLevel = currentLevel;
-        while (newXP >= xpThresholdForLevel(newLevel)) {
-          newLevel++;
-        }
-        const levelsGained = newLevel - currentLevel;
-        const newMaxHealth = postBattleStats.maxHealth + levelsGained * 10;
-        finalEffectiveMaxHealth = levelsGained > 0 ? newMaxHealth : postBattleStats.maxHealth;
+        const eliteEvent = bonus.events.find((event) => event.type === "elite");
+        const eliteLost = eliteEvent?.type === "elite" && eliteEvent.result === "lose";
 
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            xp: { increment: bonus.xpGained },
-            gold: { increment: bonus.goldGained },
-            ...(levelsGained > 0
-              ? {
-                  level: { increment: levelsGained },
-                  attack: { increment: levelsGained * 2 },
-                  defense: { increment: levelsGained },
-                  maxHealth: { increment: levelsGained * 10 },
-                }
-              : {}),
-            health: levelsGained > 0 ? newMaxHealth : bonus.finalHealth,
-          },
-        });
+        if (eliteLost) {
+          // 菁英怪輸了：跟主戰鬥落敗一樣不觸發升級，經驗值只計入累積，之後靠贏別場戰鬥再一次補上；
+          // 這樣才不會因為安慰經驗值剛好湊到升級門檻，反而用升級的全滿血蓋掉這次的敗北懲罰
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              xp: { increment: bonus.xpGained },
+              gold: { increment: bonus.goldGained },
+              health: bonus.finalHealth,
+            },
+          });
+        } else {
+          const currentLevel = updatedUser.level;
+          const newXP = updatedUser.xp + bonus.xpGained;
+          let newLevel = currentLevel;
+          while (newXP >= xpThresholdForLevel(newLevel)) {
+            newLevel++;
+          }
+          const levelsGained = newLevel - currentLevel;
+          bonusLevelsGained = levelsGained;
+          const newMaxHealth = postBattleStats.maxHealth + levelsGained * 10;
+          finalEffectiveMaxHealth = levelsGained > 0 ? newMaxHealth : postBattleStats.maxHealth;
+
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              xp: { increment: bonus.xpGained },
+              gold: { increment: bonus.goldGained },
+              ...(levelsGained > 0
+                ? {
+                    level: { increment: levelsGained },
+                    attack: { increment: levelsGained * 2 },
+                    defense: { increment: levelsGained },
+                    maxHealth: { increment: levelsGained * 10 },
+                  }
+                : {}),
+              health: levelsGained > 0 ? newMaxHealth : bonus.finalHealth,
+            },
+          });
+        }
 
         finalUser = (await prisma.user.findUnique({ where: { userId } })) as User;
       }
@@ -524,6 +543,7 @@ export class RPGService {
       effectiveMaxHealth: finalEffectiveMaxHealth,
       message,
       bonusEvents,
+      bonusLevelsGained,
     };
   }
 
