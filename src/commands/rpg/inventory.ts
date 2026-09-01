@@ -11,7 +11,14 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, TYPE_EMOJIS, formatEffectValue, ACCESSORY_SLOTS } from "../../services/itemService";
+import {
+  ItemService,
+  TYPE_EMOJIS,
+  TYPE_LABELS,
+  EQUIPPABLE_TYPES,
+  ACCESSORY_SLOTS,
+  formatEffectValue,
+} from "../../services/itemService";
 import type { EquipSlot } from "../../services/itemService";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
@@ -106,11 +113,26 @@ async function buildInventoryView(
   const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
   const pageItems = inventory.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
-  const lines = pageItems.map((row) => {
-    const emoji = TYPE_EMOJIS[row.item.type] ?? "🧳";
-    const equippedTag = equippedItemIds.has(row.itemId) ? "（裝備中）" : "";
-    return `${emoji} ${row.item.name} x${chip(row.quantity)}${equippedTag}`;
-  });
+  // 照類型分類、插入分類標題；同一頁裡類型一換就插新標題，武器/防具/飾品優先顯示在前面幾頁
+  const lines: string[] = [];
+  let lastType: string | null = null;
+  for (const row of pageItems) {
+    if (row.item.type !== lastType) {
+      lastType = row.item.type;
+      const headerEmoji = TYPE_EMOJIS[row.item.type] ?? "🧳";
+      const headerLabel = TYPE_LABELS[row.item.type] ?? row.item.type;
+      lines.push(`${headerEmoji}｜${headerLabel}`);
+    }
+
+    const isEquipped = equippedItemIds.has(row.itemId);
+    const equippedTag = isEquipped ? "（裝備中）" : "";
+    // 已經裝備中的道具不用跟自己比較，直接顯示原始數值就好，比較是給「還沒裝備的候選道具」參考用的
+    const comparison =
+      EQUIPPABLE_TYPES.includes(row.item.type) && !isEquipped
+        ? `　${ItemService.computeEquipComparison(row.item.type, row.item, equipped)}`
+        : "";
+    lines.push(`　${row.item.name} x${chip(row.quantity)}${equippedTag}${comparison}`);
+  }
   embed.addFields(sectionField("🧳", `道具（第 ${clampedPage + 1}/${totalPages} 頁）`, lines));
 
   if (totalPages > 1) {

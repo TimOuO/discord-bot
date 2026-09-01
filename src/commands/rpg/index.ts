@@ -27,7 +27,7 @@ import {
   handleCraftListSelect,
   handleCraftMakeButton,
 } from "./craft";
-import { handleEquipCommand, equipAutocomplete, handleUseCommand, useAutocomplete } from "./items";
+import { handleUseCommand, useAutocomplete } from "./items";
 import {
   handleShopBuy,
   handleShopSell,
@@ -109,29 +109,6 @@ export default {
             .setDescription("要鍛造的裝備，不填會顯示配方清單")
             .setRequired(false)
             .setAutocomplete(true)
-        )
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName("equip")
-        .setDescription("裝備武器、防具或飾品")
-        .addStringOption((option) =>
-          option
-            .setName("item")
-            .setDescription("要裝備的道具")
-            .setRequired(true)
-            .setAutocomplete(true)
-        )
-        .addStringOption((option) =>
-          option
-            .setName("slot")
-            .setDescription("飾品欄都滿了要指定換哪一格時才需要填")
-            .setRequired(false)
-            .addChoices(
-              { name: "飾品欄 1", value: "accessory1" },
-              { name: "飾品欄 2", value: "accessory2" },
-              { name: "飾品欄 3", value: "accessory3" }
-            )
         )
     )
     .addSubcommand((subcommand) =>
@@ -222,8 +199,6 @@ export default {
         return handleGatherCommand(interaction);
       case "craft":
         return handleCraftCommand(interaction);
-      case "equip":
-        return handleEquipCommand(interaction);
       case "use":
         return handleUseCommand(interaction);
       default:
@@ -244,7 +219,6 @@ export default {
       return interaction.respond([]);
     }
 
-    if (subcommand === "equip") return equipAutocomplete(interaction);
     if (subcommand === "use") return useAutocomplete(interaction);
     if (subcommand === "craft") return craftAutocomplete(interaction);
     return interaction.respond([]);

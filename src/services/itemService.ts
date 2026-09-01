@@ -14,6 +14,10 @@ export interface RecipeIngredient {
   quantity: number;
 }
 
+// 背包顯示順序：裝備類優先（武器/防具/飾品），再來是消耗品，最後才是魚/材料；
+// 原本用 Prisma 的 orderBy type asc 是照字母排序，weapon 剛好排最後面，武器反而被擠到最後一頁
+export const TYPE_ORDER: readonly string[] = ["weapon", "armor", "accessory", "potion", "fish", "material"];
+
 export const TYPE_LABELS: Record<string, string> = {
   weapon: "武器",
   armor: "防具",
@@ -50,6 +54,13 @@ export function formatEffectValue(type: string, value: number): string {
   const label = EFFECT_TYPE_LABELS[type] ?? type;
   const suffix = PERCENTAGE_EFFECT_TYPES.includes(type) ? "%" : "";
   return `${label} +${value}${suffix}`;
+}
+
+// 背包列表拿來標「跟現在裝備比差多少」用，例如 (+15) 或 (-5) 或 (±0)
+export function formatEffectDelta(type: string, delta: number): string {
+  const suffix = PERCENTAGE_EFFECT_TYPES.includes(type) ? "%" : "";
+  if (delta === 0) return `±0${suffix}`;
+  return `${delta > 0 ? "+" : ""}${delta}${suffix}`;
 }
 
 export const RARITY_LABELS: Record<string, string> = {
@@ -99,20 +110,23 @@ export interface BaseStats {
 }
 
 export class ItemService {
-  // 只有 purchasable 的道具才會出現在商店（魚/材料/鍛造裝備都不能直接買，見 sellItem 之後可以拿去賣）
+  // 只有 purchasable 的道具才會出現在商店（魚/材料/鍛造裝備都不能直接買，見 sellItem 之後可以拿去賣）；
+  // 排序照 TYPE_ORDER（裝備優先），不是字母順序，同類型內再照價格排
   static async getShopCatalog(): Promise<Item[]> {
-    return prisma.item.findMany({
+    const items = await prisma.item.findMany({
       where: { purchasable: true },
-      orderBy: [{ type: "asc" }, { cost: "asc" }],
+      orderBy: [{ cost: "asc" }],
     });
+    return items.sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type));
   }
 
-  // 有配方的道具才能鍛造
+  // 有配方的道具才能鍛造；排序照 TYPE_ORDER（裝備優先），同類型內再照價格排
   static async getCraftableCatalog(): Promise<Item[]> {
-    return prisma.item.findMany({
+    const items = await prisma.item.findMany({
       where: { recipe: { not: Prisma.DbNull } },
       orderBy: [{ cost: "asc" }],
     });
+    return items.sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type));
   }
 
   static async findItemByName(name: string): Promise<Item | null> {
@@ -125,12 +139,14 @@ export class ItemService {
     return Math.floor(item.cost * ratio);
   }
 
+  // 排序照 TYPE_ORDER（裝備優先），不是字母順序；Prisma 的 orderBy 沒辦法表示自訂順序，
+  // 用 JS 排序，資料量小（一個玩家的背包）效能不是問題
   static async getInventory(userInternalId: string) {
-    return prisma.inventory.findMany({
+    const rows = await prisma.inventory.findMany({
       where: { userId: userInternalId },
       include: { item: true },
-      orderBy: { item: { type: "asc" } },
     });
+    return rows.sort((a, b) => TYPE_ORDER.indexOf(a.item.type) - TYPE_ORDER.indexOf(b.item.type));
   }
 
   static async getEquipped(userInternalId: string) {
@@ -140,6 +156,41 @@ export class ItemService {
     });
     const bySlot = new Map(rows.map((row) => [row.slot, row]));
     return EQUIP_SLOTS.map((slot) => ({ slot, equipped: bySlot.get(slot) ?? null }));
+  }
+
+  // 跟目前裝備比較數值差異，給商店/鍛造/背包清單共用：武器/防具只有一個對應欄位，直接比；
+  // 飾品有三欄，同屬性的話跟其中最弱的比，沒有同屬性的裝備就不比、只顯示這件道具本身的數值
+  static computeEquipComparison(
+    itemType: string,
+    item: { effectType: string; effectType2?: string | null; effectValue: number; effectValue2?: number | null },
+    equipped: Awaited<ReturnType<typeof ItemService.getEquipped>>
+  ): string {
+    const candidateEffects: { type: string; value: number }[] = [{ type: item.effectType, value: item.effectValue }];
+    if (item.effectType2 && item.effectValue2 != null) {
+      candidateEffects.push({ type: item.effectType2, value: item.effectValue2 });
+    }
+
+    const referenceSlots: string[] =
+      itemType === "weapon" ? ["weapon"] : itemType === "armor" ? ["armor"] : itemType === "accessory" ? [...ACCESSORY_SLOTS] : [];
+
+    const referenceEffects: { type: string; value: number }[] = [];
+    for (const slot of referenceSlots) {
+      const eq = equipped.find((e) => e.slot === slot)?.equipped;
+      if (!eq) continue;
+      referenceEffects.push({ type: eq.item.effectType, value: eq.item.effectValue });
+      if (eq.item.effectType2 && eq.item.effectValue2 != null) {
+        referenceEffects.push({ type: eq.item.effectType2, value: eq.item.effectValue2 });
+      }
+    }
+
+    const parts = candidateEffects.map(({ type, value }) => {
+      const matches = referenceEffects.filter((r) => r.type === type);
+      if (matches.length === 0) return formatEffectValue(type, value);
+      const weakest = matches.reduce((min, m) => (m.value < min.value ? m : min));
+      return `${formatEffectValue(type, value)}（${formatEffectDelta(type, value - weakest.value)}）`;
+    });
+
+    return parts.join("、");
   }
 
   // 有效屬性 = 基礎屬性 + 目前所有已裝備道具的加成，即時計算、不寫回 User（見 docs/adr/0001）
