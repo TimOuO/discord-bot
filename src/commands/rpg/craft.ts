@@ -33,10 +33,7 @@ async function replyCraftSuccess(
   const rarityLabel = RARITY_LABELS[item.rarity] ?? item.rarity;
   const recipe = (item.recipe as unknown as RecipeIngredient[]) ?? [];
   const equipNote = autoEquippedSlot ? `，並自動裝備為${SLOT_GROUP_LABELS[autoEquippedSlot]}！` : "";
-  const effects = [formatEffectValue(item.effectType, item.effectValue)];
-  if (item.effectType2 && item.effectValue2 != null) {
-    effects.push(formatEffectValue(item.effectType2, item.effectValue2));
-  }
+  const effects = getItemEffects(item);
 
   const embed = new EmbedBuilder()
     .setTitle("🔨 鍛造成功！")
@@ -96,6 +93,14 @@ function getRecipeStatus(
   return { canCraft, parts };
 }
 
+function getItemEffects(item: Item): string[] {
+  const effects = [formatEffectValue(item.effectType, item.effectValue)];
+  if (item.effectType2 && item.effectValue2 != null) {
+    effects.push(formatEffectValue(item.effectType2, item.effectValue2));
+  }
+  return effects;
+}
+
 async function getOwnedByName(discordUserId: string): Promise<Map<string, number>> {
   const user = await RPGService.findUserByDiscordId(discordUserId);
   if (!user) return new Map();
@@ -114,8 +119,11 @@ export async function craftAutocomplete(interaction: AutocompleteInteraction) {
     filtered.map((item) => {
       const { canCraft, parts } = getRecipeStatus(item, ownedByName);
       const statusEmoji = canCraft ? "✅" : "❌";
+      const effects = getItemEffects(item).join("、");
+      // 數值在第一行、材料需求在第二行，分層比較好一眼看懂；Discord 自動完成選項上限 100 字元
+      const name = `${statusEmoji} ${item.name}（${effects}）\n${parts.join("、")}`;
       return {
-        name: `${statusEmoji} ${item.name}（${parts.join("、")}）`.slice(0, 100),
+        name: name.slice(0, 100),
         value: item.name,
       };
     })
@@ -130,10 +138,7 @@ type CraftListView = {
 // 每個配方旁邊直接列出材料「現有/需要」跟 ✅/❌，不用先鍛造一次才知道自己缺什麼
 function formatRecipeLine(item: Item, ownedByName: Map<string, number>): string {
   const rarityLabel = RARITY_LABELS[item.rarity] ?? item.rarity;
-  const effects = [formatEffectValue(item.effectType, item.effectValue)];
-  if (item.effectType2 && item.effectValue2 != null) {
-    effects.push(formatEffectValue(item.effectType2, item.effectValue2));
-  }
+  const effects = getItemEffects(item);
 
   const { canCraft, parts } = getRecipeStatus(item, ownedByName);
   const statusEmoji = canCraft ? "✅" : "❌";
