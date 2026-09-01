@@ -24,6 +24,15 @@ function healOnWin(currentHealth: number, maxHealth: number): number {
   return Math.min(currentHealth + Math.round(maxHealth * WIN_HEAL_RATIO), maxHealth);
 }
 
+// 新手保護：Lv5 以下落敗只砍到上限的 80%，不是 30%。新手通常還沒買藥水、也不知道要去商店買，
+// 同等級敵人每場都是滿血迎戰，玩家只要沒有回到接近滿血，下一場就會持續處於劣勢；
+// 試過 60% 還是會連續輸好幾場爬不回來，80% 才能真的打破「血越少、越容易再輸、血更少」的死亡螺旋
+// ——這個保護只影響落敗的血量下限，不影響戰鬥本身的勝率
+function lossHealthFloor(maxHealth: number, userLevel: number): number {
+  const ratio = userLevel <= 5 ? 0.8 : 0.3;
+  return Math.max(10, Math.floor(maxHealth * ratio));
+}
+
 interface EnemyEncounter {
   name: string;
   level: number;
@@ -497,7 +506,7 @@ export class RPGService {
                 maxHealth: { increment: levelsGained * 10 },
               }
             : {}),
-          health: Math.max(10, Math.floor(newMaxHealthOnLoss * 0.3)),
+          health: lossHealthFloor(newMaxHealthOnLoss, user.level),
           lastBattle: new Date(),
         },
       });
@@ -647,7 +656,7 @@ export class RPGService {
       } else {
         xpGained = Math.max(1, Math.round(enemy.level * 2 * (1 + effectiveStats.xpBonus / 100)));
         // 輸的話跟 battle() 一樣血量掉到有效上限的 30%，整趟到此結束
-        currentHealth = Math.max(10, Math.floor(effectiveStats.maxHealth * 0.3));
+        currentHealth = lossHealthFloor(effectiveStats.maxHealth, user.level);
       }
 
       totalXpGained += xpGained;
@@ -689,10 +698,10 @@ export class RPGService {
     const levelsGained = newLevel - currentLevel;
     const newMaxHealth = effectiveStats.maxHealth + levelsGained * 10;
     const effectiveMaxHealth = levelsGained > 0 ? newMaxHealth : effectiveStats.maxHealth;
-    // 整趟用落敗收尾的話，就算安慰經驗值剛好湊到升級門檻，血量還是要照落敗懲罰砍到（新）上限的 30%，
+    // 整趟用落敗收尾的話，就算安慰經驗值剛好湊到升級門檻，血量還是要照落敗懲罰砍到（新）上限的下限比例，
     // 不能讓升級的全滿血蓋掉這次的敗北；只有全破才會用升級的全滿血
     const finalHealthValue = !clearedAllFloors
-      ? Math.max(10, Math.floor(effectiveMaxHealth * 0.3))
+      ? lossHealthFloor(effectiveMaxHealth, user.level)
       : levelsGained > 0
         ? newMaxHealth
         : Math.min(currentHealth, effectiveMaxHealth);
