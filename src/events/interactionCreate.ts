@@ -9,8 +9,10 @@ import {
 import {
   handleBattleRematchButton,
   handleDungeonRetryButton,
+  handleFishRetryButton,
   handleFishSellButton,
   handleFishSellAllButton,
+  handleGatherRetryButton,
   handleGatherSellButton,
   handleGatherSellAllButton,
   handleShopSellAllButton,
@@ -32,8 +34,10 @@ import {
 const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promise<void>> = {
   battle_rematch: handleBattleRematchButton,
   dungeon_retry: handleDungeonRetryButton,
+  fish_retry: handleFishRetryButton,
   fish_sell: handleFishSellButton,
   fish_sell_all: handleFishSellAllButton,
+  gather_retry: handleGatherRetryButton,
   gather_sell: handleGatherSellButton,
   gather_sell_all: handleGatherSellAllButton,
   shop_sell_all: handleShopSellAllButton,

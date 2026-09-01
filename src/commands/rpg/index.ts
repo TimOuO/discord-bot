@@ -18,8 +18,8 @@ import {
 import { handleBattleCommand, handleBattleRematchButton } from "./battle";
 import { handleDungeonCommand, handleDungeonRetryButton } from "./dungeon";
 import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
-import { handleFishCommand, handleFishSellButton, handleFishSellAllButton } from "./fish";
-import { handleGatherCommand, handleGatherSellButton, handleGatherSellAllButton } from "./gather";
+import { handleFishCommand, handleFishRetryButton, handleFishSellButton, handleFishSellAllButton } from "./fish";
+import { handleGatherCommand, handleGatherRetryButton, handleGatherSellButton, handleGatherSellAllButton } from "./gather";
 import {
   handleCraftCommand,
   craftAutocomplete,
@@ -46,8 +46,10 @@ import {
 export {
   handleBattleRematchButton,
   handleDungeonRetryButton,
+  handleFishRetryButton,
   handleFishSellButton,
   handleFishSellAllButton,
+  handleGatherRetryButton,
   handleGatherSellButton,
   handleGatherSellAllButton,
   handleShopSellAllButton,
