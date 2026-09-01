@@ -394,8 +394,10 @@ describe("RPGService.dungeon", () => {
       // 每層一擊必殺、敵人完全沒機會反擊，血量不該掉，加上每層過關的 +10 回血封頂，最終應該還是滿血
       expect(result.user.health).toBe(result.user.maxHealth);
       expect(result.user.gold).toBeGreaterThan(user.gold);
-      // 只有第 4 層 boss 打贏保證掉一件稀有材料，前 3 層普通敵人沒有
-      expect(result.floors[0].rareLoot).toBeNull();
+      // 第 1 層（前 3 層保底的那一件）跟第 4 層 boss 打贏都保證掉一件稀有材料，全破共 2 件；
+      // 第 2、3 層本身不額外掉，因為保底已經在第 1 層發過了
+      expect(result.floors[0].rareLoot).not.toBeNull();
+      expect(["rare", "epic", "legendary"]).toContain(result.floors[0].rareLoot?.item.rarity);
       expect(result.floors[1].rareLoot).toBeNull();
       expect(result.floors[2].rareLoot).toBeNull();
       expect(result.floors[3].rareLoot).not.toBeNull();

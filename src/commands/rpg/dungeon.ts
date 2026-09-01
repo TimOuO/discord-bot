@@ -37,7 +37,8 @@ async function runDungeonAndBuildReply(userId: string, username: string, avatarU
     const outcome = floor.result === "win" ? "✅ 勝利" : "❌ 落敗";
     const emoji = floor.floor === 4 ? "🏆" : "⚔️";
     const rareLootNote = floor.rareLoot ? `\n　└ ✨ 額外掉落了稀有材料「${floor.rareLoot.item.name}」！` : "";
-    return `${emoji} 第 ${floor.floor} 層：${floor.enemyName} Lv.${floor.enemyLevel} → ${outcome}（${chip(floor.rounds)} 回合）${rareLootNote}`;
+    const healthNote = `${floor.healthDelta >= 0 ? "+" : ""}${floor.healthDelta}`;
+    return `${emoji} 第 ${floor.floor} 層：${floor.enemyName} Lv.${floor.enemyLevel} → ${outcome}（${chip(floor.rounds)} 回合）\n　生命值 ${chip(floor.healthAfter)}（${chip(healthNote)}）${rareLootNote}`;
   });
 
   const rewardLines = [
@@ -59,7 +60,7 @@ async function runDungeonAndBuildReply(userId: string, username: string, avatarU
       sectionField("🎁", "獲得獎勵", rewardLines),
       sectionField("📊", "目前狀態", [
         `等級 ${chip(result.user.level)}（經驗 ${chip(`${result.user.xp}/${xpThresholdForLevel(result.user.level)}`)}）`,
-        `生命值 ${progressBar(result.user.health, result.effectiveMaxHealth)} ${chip(`${result.user.health}/${result.effectiveMaxHealth}`)}`,
+        `生命值 ${progressBar(result.user.health, result.effectiveMaxHealth)} ${chip(`${result.user.health}/${result.effectiveMaxHealth}`)}（${result.healthDelta >= 0 ? "+" : ""}${chip(result.healthDelta)}）`,
         `金幣 ${chip(result.user.gold)}`,
       ])
     );

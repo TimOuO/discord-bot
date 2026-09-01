@@ -287,6 +287,8 @@ export interface DungeonFloorResult {
   xpGained: number;
   goldGained: number;
   rareLoot: RareLoot | null;
+  healthAfter: number;
+  healthDelta: number;
 }
 
 export type DungeonResult =
@@ -594,6 +596,7 @@ export class RPGService {
     let clearedAllFloors = true;
 
     for (let floor = 1; floor <= DUNGEON_FLOOR_COUNT; floor++) {
+      const healthBeforeFloor = currentHealth;
       const isBoss = floor === DUNGEON_FLOOR_COUNT;
       // 每層比上一層高兩級左右，最後一層是額外加成的 boss
       const baseLevel = Math.max(1, user.level - 2 + (floor - 1) * 2 + randomInt(0, 3));
@@ -613,8 +616,9 @@ export class RPGService {
         goldGained = Math.round((5 + enemy.level * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100));
         // 過關跟 battle() 贏了一樣小回血，但封頂在裝備加成後的上限（等級提升要等整趟結束才結算）
         currentHealth = healOnWin(finalHealth, effectiveStats.maxHealth);
-        // 只有 boss 層（第 4 層）打贏才保證額外掉一件稀有材料，前面幾層的普通敵人沒有
-        if (isBoss) {
+        // boss 層（第 4 層）打贏保證掉一件；前 3 層打贏「第一次」也保證掉一件（固定發生在第 1 層，
+        // 因為要打到第 2、3 層一定要先贏第 1 層），全破的話等於前 3 層 1 件 + boss 1 件、共 2 件
+        if (isBoss || floor === 1) {
           rareLoot = await grantRareLoot(user.id);
         }
       } else {
@@ -625,7 +629,18 @@ export class RPGService {
 
       totalXpGained += xpGained;
       totalGoldGained += goldGained;
-      floors.push({ floor, enemyName: enemy.name, enemyLevel: enemy.level, result, rounds, xpGained, goldGained, rareLoot });
+      floors.push({
+        floor,
+        enemyName: enemy.name,
+        enemyLevel: enemy.level,
+        result,
+        rounds,
+        xpGained,
+        goldGained,
+        rareLoot,
+        healthAfter: currentHealth,
+        healthDelta: currentHealth - healthBeforeFloor,
+      });
 
       if (result === "lose") {
         clearedAllFloors = false;
