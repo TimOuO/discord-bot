@@ -12,7 +12,14 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, RARITY_LABELS, SLOT_GROUP_LABELS, formatEffectValue } from "../../services/itemService";
+import {
+  ItemService,
+  RARITY_LABELS,
+  SLOT_GROUP_LABELS,
+  TYPE_EMOJIS,
+  TYPE_LABELS,
+  formatEffectValue,
+} from "../../services/itemService";
 import type { RecipeIngredient } from "../../services/itemService";
 import type { Item } from "../../generated/prisma";
 import { chip, sectionField } from "../../utils/embeds";
@@ -135,15 +142,20 @@ type CraftListView = {
   components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[];
 };
 
-// 每個配方旁邊直接列出材料「現有/需要」跟 ✅/❌，不用先鍛造一次才知道自己缺什麼
-function formatRecipeLine(item: Item, ownedByName: Map<string, number>): string {
+// 每個配方旁邊直接列出材料「現有/需要」跟 ✅/❌，不用先鍛造一次才知道自己缺什麼；
+// 數值改成跟目前裝備比較（神話裝備全部都是可裝備類型），不只是顯示原始效果
+function formatRecipeLine(
+  item: Item,
+  ownedByName: Map<string, number>,
+  equipped: Awaited<ReturnType<typeof ItemService.getEquipped>>
+): string {
   const rarityLabel = RARITY_LABELS[item.rarity] ?? item.rarity;
-  const effects = getItemEffects(item);
+  const effectText = ItemService.computeEquipComparison(item.type, item, equipped);
 
   const { canCraft, parts } = getRecipeStatus(item, ownedByName);
   const statusEmoji = canCraft ? "✅" : "❌";
   return [
-    `${statusEmoji} **${item.name}**（${rarityLabel}・${effects.join("、")}）`,
+    `${statusEmoji} **${item.name}**（${rarityLabel}・${effectText}）`,
     `　需要：${parts.join("、")}`,
   ].join("\n");
 }
@@ -158,6 +170,8 @@ async function buildCraftListView(
 ): Promise<CraftListView> {
   const items = await ItemService.getCraftableCatalog();
   const ownedByName = await getOwnedByName(discordUserId);
+  const user = await RPGService.findUserByDiscordId(discordUserId);
+  const equipped = user ? await ItemService.getEquipped(user.id) : [];
 
   const embed = new EmbedBuilder()
     .setTitle("🔨 鍛造配方")
@@ -174,7 +188,18 @@ async function buildCraftListView(
   const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
   const pageItems = items.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
-  const lines = pageItems.map((item) => formatRecipeLine(item, ownedByName));
+  // 照類型分類、插入分類標題；同一頁裡類型一換就插新標題
+  const lines: string[] = [];
+  let lastType: string | null = null;
+  for (const item of pageItems) {
+    if (item.type !== lastType) {
+      lastType = item.type;
+      const headerEmoji = TYPE_EMOJIS[item.type] ?? "🔨";
+      const headerLabel = TYPE_LABELS[item.type] ?? item.type;
+      lines.push(`${headerEmoji}｜${headerLabel}`);
+    }
+    lines.push(formatRecipeLine(item, ownedByName, equipped));
+  }
   embed.addFields(sectionField("🔨", `配方（第 ${clampedPage + 1}/${totalPages} 頁）`, lines));
   embed.setFooter({ text: "選單選裝備後，材料夠的話可以直接鍛造" });
 

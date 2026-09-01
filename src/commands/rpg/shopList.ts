@@ -11,7 +11,14 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, TYPE_EMOJIS, formatEffectValue, SLOT_GROUP_LABELS } from "../../services/itemService";
+import {
+  ItemService,
+  TYPE_EMOJIS,
+  TYPE_LABELS,
+  EQUIPPABLE_TYPES,
+  formatEffectValue,
+  SLOT_GROUP_LABELS,
+} from "../../services/itemService";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 
@@ -32,6 +39,7 @@ async function buildShopListView(
 ): Promise<ShopListView> {
   const items = await ItemService.getShopCatalog();
   const owner = await RPGService.findUserByDiscordId(ownerDiscordId);
+  const equipped = owner ? await ItemService.getEquipped(owner.id) : [];
 
   const embed = new EmbedBuilder()
     .setTitle("🛒 商店")
@@ -52,10 +60,23 @@ async function buildShopListView(
   const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
   const pageItems = items.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
-  const lines = pageItems.map((item) => {
-    const emoji = TYPE_EMOJIS[item.type] ?? "🛒";
-    return `${emoji} **${item.name}** — ${chip(item.cost)} 金幣（${formatEffectValue(item.effectType, item.effectValue)}）`;
-  });
+  // 照類型分類、插入分類標題；同一頁裡類型一換就插新標題，武器/防具/飾品優先顯示在前面幾頁
+  const lines: string[] = [];
+  let lastType: string | null = null;
+  for (const item of pageItems) {
+    if (item.type !== lastType) {
+      lastType = item.type;
+      const headerEmoji = TYPE_EMOJIS[item.type] ?? "🛒";
+      const headerLabel = TYPE_LABELS[item.type] ?? item.type;
+      lines.push(`${headerEmoji}｜${headerLabel}`);
+    }
+
+    const effectText =
+      EQUIPPABLE_TYPES.includes(item.type) && owner
+        ? ItemService.computeEquipComparison(item.type, item, equipped)
+        : formatEffectValue(item.effectType, item.effectValue);
+    lines.push(`　**${item.name}** — ${chip(item.cost)} 金幣（${effectText}）`);
+  }
   embed.addFields(sectionField("🛒", `商品（第 ${clampedPage + 1}/${totalPages} 頁）`, lines));
   embed.setFooter({ text: "選單選商品後可以直接購買" });
 

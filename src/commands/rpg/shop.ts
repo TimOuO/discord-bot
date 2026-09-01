@@ -10,7 +10,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, SLOT_GROUP_LABELS } from "../../services/itemService";
+import { ItemService, SLOT_GROUP_LABELS, formatEffectValue } from "../../services/itemService";
 import type { Item } from "../../generated/prisma";
 import { chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
@@ -142,10 +142,16 @@ export async function shopBuyAutocomplete(interaction: AutocompleteInteraction) 
   const items = await ItemService.getShopCatalog();
   const filtered = items.filter((item) => item.name.includes(focused)).slice(0, 25);
   return interaction.respond(
-    filtered.map((item) => ({
-      name: `${item.name}（${item.cost} 金幣）`,
-      value: item.name,
-    }))
+    filtered.map((item) => {
+      const effects = [formatEffectValue(item.effectType, item.effectValue)];
+      if (item.effectType2 && item.effectValue2 != null) {
+        effects.push(formatEffectValue(item.effectType2, item.effectValue2));
+      }
+      return {
+        name: `${item.name}（${item.cost} 金幣・${effects.join("、")}）`.slice(0, 100),
+        value: item.name,
+      };
+    })
   );
 }
 
