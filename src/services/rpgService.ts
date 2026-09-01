@@ -412,7 +412,10 @@ export class RPGService {
       maxHealth: user.maxHealth,
     });
 
-    const enemy = rollEnemy(Math.max(1, user.level - 1 + randomInt(-1, 3)), ENEMY_TYPES);
+    // 新手保護：Lv5 以下不會遇到比自己等級高的敵人，避免剛開始玩、還沒有任何裝備時
+    // 運氣不好抽到更強的敵人就直接落敗，很傷新手體驗（現在的百分比減傷公式沒有舊公式那麼寬容）
+    const enemyLevelVariance = user.level <= 5 ? randomInt(-2, 2) : randomInt(-1, 3);
+    const enemy = rollEnemy(Math.max(1, user.level - 1 + enemyLevelVariance), ENEMY_TYPES);
     const enemyName = enemy.name;
     const enemyLevel = enemy.level;
     const enemyHealth = enemy.health;

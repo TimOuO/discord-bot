@@ -162,6 +162,16 @@ describe("RPGService.battle", () => {
     expect(result.user.health).toBeLessThan(result.effectiveMaxHealth);
   });
 
+  it("Lv5 以下不會遇到比自己等級高的敵人（新手保護）", async () => {
+    const { discordUserId } = await createTestUser({ level: 3, xp: 0 });
+
+    for (let i = 0; i < 30; i++) {
+      const result = await RPGService.battle(discordUserId);
+      expect(result.enemyLevel).toBeLessThanOrEqual(3);
+      await prisma.user.update({ where: { userId: discordUserId }, data: { lastBattle: null, level: 3, xp: 0 } });
+    }
+  });
+
   it("戰鬥後 30 秒內再戰會被冷卻擋下", async () => {
     const { discordUserId } = await createTestUser({ attack: 9999, defense: 9999 });
     await RPGService.battle(discordUserId);
