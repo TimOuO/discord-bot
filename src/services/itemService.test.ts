@@ -36,6 +36,19 @@ describe("ItemService.buyItem", () => {
     await expect(ItemService.buyItem(user.id, fish.name)).rejects.toThrow("不是商店販售的商品");
   });
 
+  it("飾品欄有三格，買第三件飾品時會自動裝進飾品欄 3", async () => {
+    const { user } = await createTestUser({ gold: 1000 });
+    const accA = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 5 });
+    const accB = await createTestItem({ type: "accessory", cost: 50, effectType: "defense", effectValue: 5 });
+    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "maxHealth", effectValue: 10 });
+    await ItemService.buyItem(user.id, accA.name); // accessory1
+    await ItemService.buyItem(user.id, accB.name); // accessory2
+
+    const result = await ItemService.buyItem(user.id, accC.name);
+
+    expect(result.autoEquippedSlot).toBe("accessory3");
+  });
+
   it("買武器時，空的武器欄會自動裝備", async () => {
     const { user } = await createTestUser({ gold: 1000 });
     const weapon = await createTestItem({ type: "weapon", cost: 50, effectType: "attack", effectValue: 20 });
@@ -180,37 +193,42 @@ describe("ItemService.useItem", () => {
 });
 
 describe("ItemService.equipItem", () => {
-  it("兩個飾品欄都滿了、沒指定要換哪一欄時，預設頂掉飾品欄 1", async () => {
+  it("三個飾品欄都滿了、沒指定要換哪一欄時，預設頂掉飾品欄 1", async () => {
     const { user } = await createTestUser({ gold: 1000 });
     const accA = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 5 });
     const accB = await createTestItem({ type: "accessory", cost: 50, effectType: "defense", effectValue: 5 });
-    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 8 });
+    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "maxHealth", effectValue: 10 });
+    const accD = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 8 });
     await ItemService.buyItem(user.id, accA.name); // 自動裝進 accessory1
     await ItemService.buyItem(user.id, accB.name); // 自動裝進 accessory2
-    await ItemService.buyItem(user.id, accC.name); // 兩欄都滿了，不會自動裝
+    await ItemService.buyItem(user.id, accC.name); // 自動裝進 accessory3
+    await ItemService.buyItem(user.id, accD.name); // 三欄都滿了，不會自動裝
 
-    const result = await ItemService.equipItem(user.id, accC.name);
+    const result = await ItemService.equipItem(user.id, accD.name);
 
     expect(result.slot).toBe("accessory1");
     expect(result.replacedItem?.name).toBe(accA.name);
   });
 
-  it("可以指定要換掉飾品欄 2，不會動到飾品欄 1", async () => {
+  it("可以指定要換掉飾品欄 2，不會動到飾品欄 1、3", async () => {
     const { user } = await createTestUser({ gold: 1000 });
     const accA = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 5 });
     const accB = await createTestItem({ type: "accessory", cost: 50, effectType: "defense", effectValue: 5 });
-    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 8 });
+    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "maxHealth", effectValue: 10 });
+    const accD = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 8 });
     await ItemService.buyItem(user.id, accA.name); // accessory1
     await ItemService.buyItem(user.id, accB.name); // accessory2
-    await ItemService.buyItem(user.id, accC.name); // 兩欄都滿了，不會自動裝
+    await ItemService.buyItem(user.id, accC.name); // accessory3
+    await ItemService.buyItem(user.id, accD.name); // 三欄都滿了，不會自動裝
 
-    const result = await ItemService.equipItem(user.id, accC.name, "accessory2");
+    const result = await ItemService.equipItem(user.id, accD.name, "accessory2");
 
     expect(result.slot).toBe("accessory2");
     expect(result.replacedItem?.name).toBe(accB.name);
 
     const equipped = await ItemService.getEquipped(user.id);
     expect(equipped.find((e) => e.slot === "accessory1")?.equipped?.item.name).toBe(accA.name);
+    expect(equipped.find((e) => e.slot === "accessory3")?.equipped?.item.name).toBe(accC.name);
   });
 
   it("指定的欄位跟道具類型不相容時拒絕（例如武器指定裝到飾品欄）", async () => {

@@ -1,7 +1,7 @@
 import { Item, Prisma } from "../generated/prisma";
 import prisma from "./dbService";
 
-export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2"] as const;
+export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2", "accessory3"] as const;
 export type EquipSlot = (typeof EQUIP_SLOTS)[number];
 
 export const EQUIPPABLE_TYPES: readonly string[] = ["weapon", "armor", "accessory"];
@@ -66,16 +66,21 @@ export const SLOT_LABELS: Record<EquipSlot, string> = {
   armor: "防具",
   accessory1: "飾品欄 1",
   accessory2: "飾品欄 2",
+  accessory3: "飾品欄 3",
 };
 
-// 飾品欄 1/2 對玩家來說沒有實質差異（純粹是系統內部用來分開存兩件飾品），
+// 飾品欄 1/2/3 對玩家來說沒有實質差異（純粹是系統內部用來分開存三件飾品），
 // 使用者看到的文字不用管是哪一欄，只需要知道「這是飾品」；武器/防具則本來就是不同東西，維持原本標籤
 export const SLOT_GROUP_LABELS: Record<EquipSlot, string> = {
   weapon: "武器",
   armor: "防具",
   accessory1: "飾品",
   accessory2: "飾品",
+  accessory3: "飾品",
 };
+
+// 飾品欄的順序，挑空欄位/判斷是否全滿都照這個順序
+export const ACCESSORY_SLOTS: readonly EquipSlot[] = ["accessory1", "accessory2", "accessory3"];
 
 export interface EffectiveStats {
   attack: number;
@@ -230,7 +235,7 @@ export class ItemService {
         where: { userId: userInternalId },
       });
       const occupiedSlots = new Set(equippedRows.map((row) => row.slot));
-      const hasEmptySlot = !occupiedSlots.has("accessory1") || !occupiedSlots.has("accessory2");
+      const hasEmptySlot = ACCESSORY_SLOTS.some((slot) => !occupiedSlots.has(slot));
       if (!hasEmptySlot) return null;
 
       const result = await this.equipItem(userInternalId, item.name);
@@ -384,7 +389,7 @@ export class ItemService {
     const validSlotsForType: Record<string, EquipSlot[]> = {
       weapon: ["weapon"],
       armor: ["armor"],
-      accessory: ["accessory1", "accessory2"],
+      accessory: [...ACCESSORY_SLOTS],
     };
 
     let targetSlot: EquipSlot;
@@ -398,13 +403,9 @@ export class ItemService {
     } else if (item.type === "armor") {
       targetSlot = "armor";
     } else {
-      // 飾品：優先塞空格，兩格都滿了預設頂掉 accessory1
+      // 飾品：優先塞空格，三格都滿了預設頂掉 accessory1
       const occupiedSlots = new Set(equippedRows.map((row) => row.slot));
-      targetSlot = !occupiedSlots.has("accessory1")
-        ? "accessory1"
-        : !occupiedSlots.has("accessory2")
-          ? "accessory2"
-          : "accessory1";
+      targetSlot = ACCESSORY_SLOTS.find((slot) => !occupiedSlots.has(slot)) ?? "accessory1";
     }
 
     const currentInTargetSlot = equippedRows.find((row) => row.slot === targetSlot);

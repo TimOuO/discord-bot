@@ -123,11 +123,12 @@ export default {
         .addStringOption((option) =>
           option
             .setName("slot")
-            .setDescription("飾品欄兩格都滿了要指定換哪一格時才需要填")
+            .setDescription("飾品欄都滿了要指定換哪一格時才需要填")
             .setRequired(false)
             .addChoices(
               { name: "飾品欄 1", value: "accessory1" },
-              { name: "飾品欄 2", value: "accessory2" }
+              { name: "飾品欄 2", value: "accessory2" },
+              { name: "飾品欄 3", value: "accessory3" }
             )
         )
     )

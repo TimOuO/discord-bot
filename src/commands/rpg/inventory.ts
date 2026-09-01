@@ -11,7 +11,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, TYPE_EMOJIS, formatEffectValue } from "../../services/itemService";
+import { ItemService, TYPE_EMOJIS, formatEffectValue, ACCESSORY_SLOTS } from "../../services/itemService";
 import type { EquipSlot } from "../../services/itemService";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
@@ -81,9 +81,9 @@ async function buildInventoryView(
       sectionField("🎒", "裝備欄", (() => {
         const weaponEq = equipped.find((e) => e.slot === "weapon")?.equipped;
         const armorEq = equipped.find((e) => e.slot === "armor")?.equipped;
-        // 飾品欄 1/2 對玩家來說沒有實質差異，合併成一行顯示，不用暴露內部欄位編號
+        // 飾品欄 1/2/3 對玩家來說沒有實質差異，合併成一行顯示，不用暴露內部欄位編號
         const accessoryEqs = equipped
-          .filter((e) => e.slot === "accessory1" || e.slot === "accessory2")
+          .filter((e) => (ACCESSORY_SLOTS as readonly string[]).includes(e.slot))
           .map((e) => e.equipped)
           .filter((eq): eq is NonNullable<typeof eq> => eq !== null);
 
@@ -146,7 +146,7 @@ async function buildInventoryView(
   return { embeds: [embed], components };
 }
 
-// 飾品兩欄都滿時不能悶著頭自動選一欄頂掉，要讓玩家自己指定換哪一欄，
+// 飾品欄都滿時不能悶著頭自動選一欄頂掉，要讓玩家自己指定換哪一欄，
 // 所以這裡要另外查目前的裝備狀態，跟其他分支不一樣
 async function buildItemActionRow(
   userInternalId: string,
@@ -167,10 +167,10 @@ async function buildItemActionRow(
     );
   } else if (itemType === "accessory") {
     const equipped = await ItemService.getEquipped(userInternalId);
-    const slot1 = equipped.find((e) => e.slot === "accessory1")?.equipped;
-    const slot2 = equipped.find((e) => e.slot === "accessory2")?.equipped;
+    const bySlot = ACCESSORY_SLOTS.map((slot) => equipped.find((e) => e.slot === slot)?.equipped ?? null);
+    const hasEmptySlot = bySlot.some((eq) => !eq);
 
-    if (!slot1 || !slot2) {
+    if (hasEmptySlot) {
       // 至少一欄是空的，不會有歧義，直接用自動選擇邏輯裝上去
       buttons.push(
         new ButtonBuilder()
@@ -180,18 +180,16 @@ async function buildItemActionRow(
           .setStyle(ButtonStyle.Primary)
       );
     } else {
-      buttons.push(
-        new ButtonBuilder()
-          .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), itemName, "accessory1"))
-          .setLabel(`換掉「${slot1.item.name}」`)
-          .setEmoji("🛡️")
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), itemName, "accessory2"))
-          .setLabel(`換掉「${slot2.item.name}」`)
-          .setEmoji("🛡️")
-          .setStyle(ButtonStyle.Primary)
-      );
+      ACCESSORY_SLOTS.forEach((slot, i) => {
+        const eq = bySlot[i]!;
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), itemName, slot))
+            .setLabel(`換掉「${eq.item.name}」`)
+            .setEmoji("🛡️")
+            .setStyle(ButtonStyle.Primary)
+        );
+      });
     }
   }
   if (itemType === "potion") {
