@@ -150,6 +150,22 @@ describe("RPGService.battle", () => {
     await expect(RPGService.battle(discordUserId)).rejects.toThrow("冷卻中");
   });
 
+  it("打贏後回血是照有效上限的比例（15%），不是舊版固定 +10", async () => {
+    const { discordUserId } = await createTestUser({
+      attack: 9999,
+      defense: 9999,
+      health: 50,
+      maxHealth: 1000,
+    });
+
+    const result = await RPGService.battle(discordUserId);
+
+    // 一擊必殺、敵人完全沒機會反擊，血量變化應該至少是 15% 的 maxHealth（1000*0.15=150）；
+    // 額外事件如果剛好觸發只會讓血量更高，不會更低，所以用 >= 而不是精準相等
+    expect(result.result).toBe("win");
+    expect(result.healthDelta).toBeGreaterThanOrEqual(150);
+  });
+
   it("升級時會把生命值直接補滿到新的上限，而不是只加一點", async () => {
     const { discordUserId, user } = await createTestUser({
       attack: 9999,

@@ -16,6 +16,14 @@ const ELITE_ENEMY_TYPES = ["菁英哥布林王", "血眼狼王", "暗影刺客",
 const BATTLE_LOOT_EVENT_CHANCE = 0.35;
 const BATTLE_ELITE_EVENT_CHANCE = 0.2;
 
+// 打贏一場戰鬥回血的比例：改成百分比而不是固定 +10，
+// 換成百分比減傷公式後每場戰鬥動輒損血幾十到上百點，固定 +10 早就變得聊勝於無
+const WIN_HEAL_RATIO = 0.15;
+
+function healOnWin(currentHealth: number, maxHealth: number): number {
+  return Math.min(currentHealth + Math.round(maxHealth * WIN_HEAL_RATIO), maxHealth);
+}
+
 interface EnemyEncounter {
   name: string;
   level: number;
@@ -35,6 +43,16 @@ function rollEnemy(level: number, namePool: string[]): EnemyEncounter {
 }
 
 // 單場戰鬥的回合模擬，/rpg battle 跟 /rpg dungeon 的每一層都共用同一套規則
+// 防禦 100 減傷 50%（200 減傷 66%，以此類推），只會「減傷」不會「完全免疫」；
+// 舊公式是直接相減（傷害=攻擊-防禦），防禦一旦超過攻擊就會被保底傷害卡死在 1，
+// 裝備越堆越強反而讓戰鬥完全沒難度，改百分比減傷後不管數值再怎麼成長都不會出現這個問題
+const DEFENSE_MITIGATION_CONSTANT = 100;
+
+function calculateDamage(attack: number, defense: number): number {
+  const mitigated = (attack * DEFENSE_MITIGATION_CONSTANT) / (DEFENSE_MITIGATION_CONSTANT + defense);
+  return Math.max(1, Math.round(mitigated) + randomInt(-2, 3));
+}
+
 function simulateCombat(
   effectiveStats: EffectiveStats,
   enemy: EnemyEncounter,
@@ -46,7 +64,7 @@ function simulateCombat(
 
   while (userHealth > 0 && currentEnemyHealth > 0) {
     rounds++;
-    let userDamage = Math.max(1, effectiveStats.attack - enemy.defense + randomInt(-2, 3));
+    let userDamage = calculateDamage(effectiveStats.attack, enemy.defense);
     // 爆擊：裝備 critRate 加成的機率讓這回合傷害翻倍
     if (randomInt(0, 100) < effectiveStats.critRate) {
       userDamage *= 2;
@@ -57,7 +75,7 @@ function simulateCombat(
       // 閃避：裝備 dodgeRate 加成的機率讓這回合完全不受傷
       const dodged = randomInt(0, 100) < effectiveStats.dodgeRate;
       if (!dodged) {
-        const enemyDamage = Math.max(1, enemy.attack - effectiveStats.defense + randomInt(-2, 3));
+        const enemyDamage = calculateDamage(enemy.attack, effectiveStats.defense);
         userHealth -= enemyDamage;
       }
     }
@@ -200,8 +218,8 @@ async function rollBattleBonusEvent(
     const eliteLevel = Math.max(1, user.level + 2 + randomInt(0, 3));
     const enemy = rollEnemy(eliteLevel, ELITE_ENEMY_TYPES);
     // 菁英怪比一般敵人明顯更強，不是隨便就能打贏的額外戰鬥
-    enemy.health = Math.round(enemy.health * 1.8);
-    enemy.attack = Math.round(enemy.attack * 1.4);
+    enemy.health = Math.round(enemy.health * 2.0);
+    enemy.attack = Math.round(enemy.attack * 1.5);
 
     const combat = simulateCombat(effectiveStats, enemy, finalHealth);
     let eliteXpGained: number;
@@ -210,7 +228,7 @@ async function rollBattleBonusEvent(
     if (combat.result === "win") {
       eliteXpGained = Math.round((20 + enemy.level * 6 + randomInt(1, 8)) * (1 + effectiveStats.xpBonus / 100));
       eliteGoldGained = Math.round((15 + enemy.level * 3 + randomInt(0, 8)) * (1 + effectiveStats.goldBonus / 100));
-      finalHealth = Math.min(combat.finalHealth + 10, effectiveStats.maxHealth);
+      finalHealth = healOnWin(combat.finalHealth, effectiveStats.maxHealth);
       rareLoot = await grantRareLoot(user.id);
     } else {
       eliteXpGained = Math.max(1, Math.round(enemy.level * 2 * (1 + effectiveStats.xpBonus / 100)));
@@ -443,7 +461,7 @@ export class RPGService {
             : {}),
           // health 取決於這場戰鬥模擬出的結果，不是相對資料庫舊值的增減，所以維持絕對值寫入
           // 升級的話直接補滿；沒升級才維持原本「贏了回一點血」的規則
-          health: levelsGained > 0 ? newMaxHealth : Math.min(userHealth + 10, newMaxHealth),
+          health: levelsGained > 0 ? newMaxHealth : healOnWin(userHealth, newMaxHealth),
         },
       });
     } else {
@@ -581,8 +599,8 @@ export class RPGService {
       const baseLevel = Math.max(1, user.level - 2 + (floor - 1) * 2 + randomInt(0, 3));
       const enemy = rollEnemy(baseLevel, isBoss ? DUNGEON_BOSS_TYPES : ENEMY_TYPES);
       if (isBoss) {
-        enemy.health = Math.round(enemy.health * 1.5);
-        enemy.attack = Math.round(enemy.attack * 1.3);
+        enemy.health = Math.round(enemy.health * 1.55);
+        enemy.attack = Math.round(enemy.attack * 1.33);
       }
 
       const { result, finalHealth, rounds } = simulateCombat(effectiveStats, enemy, currentHealth);
@@ -594,7 +612,7 @@ export class RPGService {
         xpGained = Math.round((10 + enemy.level * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100));
         goldGained = Math.round((5 + enemy.level * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100));
         // 過關跟 battle() 贏了一樣小回血，但封頂在裝備加成後的上限（等級提升要等整趟結束才結算）
-        currentHealth = Math.min(finalHealth + 10, effectiveStats.maxHealth);
+        currentHealth = healOnWin(finalHealth, effectiveStats.maxHealth);
         // 只有 boss 層（第 4 層）打贏才保證額外掉一件稀有材料，前面幾層的普通敵人沒有
         if (isBoss) {
           rareLoot = await grantRareLoot(user.id);
