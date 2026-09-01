@@ -375,8 +375,45 @@ export class RPGService {
     });
   }
 
+  // 只有 /rpg start 會呼叫（character.ts 已經先擋掉「帳號已經存在」的情況），
+  // 所以這裡不用另外判斷是不是新帳號，每次呼叫都可以放心送新手背包
   static async startRPG(userId: string, username: string): Promise<User> {
-    return this.getOrCreateUser(userId, username);
+    const user = await this.getOrCreateUser(userId, username);
+    await this.grantStarterKit(user.id);
+    return user;
+  }
+
+  // 新手背包：3 瓶小型生命藥水讓新手能自己回血、不用完全依賴戰鬥的血量保底機制；
+  // 基本武器/防具直接裝上，讓新手一開始就有一點點屬性優勢，不用先攢錢逛商店才有東西可用
+  private static async grantStarterKit(userInternalId: string): Promise<void> {
+    const potion = await ItemService.findItemByName("小型生命藥水");
+    if (potion) {
+      await prisma.inventory.upsert({
+        where: { userId_itemId: { userId: userInternalId, itemId: potion.id } },
+        create: { userId: userInternalId, itemId: potion.id, quantity: 3 },
+        update: { quantity: { increment: 3 } },
+      });
+    }
+
+    const weapon = await ItemService.findItemByName("木劍");
+    if (weapon) {
+      await prisma.inventory.upsert({
+        where: { userId_itemId: { userId: userInternalId, itemId: weapon.id } },
+        create: { userId: userInternalId, itemId: weapon.id, quantity: 1 },
+        update: {},
+      });
+      await ItemService.equipItem(userInternalId, weapon.name);
+    }
+
+    const armor = await ItemService.findItemByName("皮革護甲");
+    if (armor) {
+      await prisma.inventory.upsert({
+        where: { userId_itemId: { userId: userInternalId, itemId: armor.id } },
+        create: { userId: userInternalId, itemId: armor.id, quantity: 1 },
+        update: {},
+      });
+      await ItemService.equipItem(userInternalId, armor.name);
+    }
   }
 
   static async battle(userId: string): Promise<{

@@ -62,6 +62,23 @@ beforeAll(async () => {
       });
     }
   }
+
+  // startRPG() 的新手背包會找這三件道具，跟正式的 initDB.ts 對應
+  await prisma.item.upsert({
+    where: { name: "木劍" },
+    create: { name: "木劍", description: "測試用武器", type: "weapon", rarity: "common", cost: 50, effectType: "attack", effectValue: 5 },
+    update: {},
+  });
+  await prisma.item.upsert({
+    where: { name: "皮革護甲" },
+    create: { name: "皮革護甲", description: "測試用防具", type: "armor", rarity: "common", cost: 40, effectType: "defense", effectValue: 3 },
+    update: {},
+  });
+  await prisma.item.upsert({
+    where: { name: "小型生命藥水" },
+    create: { name: "小型生命藥水", description: "測試用藥水", type: "potion", rarity: "common", cost: 25, effectType: "heal", effectValue: 30 },
+    update: {},
+  });
 });
 
 describe("RPGService.getOrCreateUser", () => {
@@ -74,6 +91,26 @@ describe("RPGService.getOrCreateUser", () => {
     expect(found?.id).toBe(created.id);
     expect(found?.level).toBe(1);
     expect(found?.gold).toBe(0);
+  });
+});
+
+describe("RPGService.startRPG", () => {
+  it("新帳號會拿到新手背包：3 瓶小型生命藥水、木劍/皮革護甲並自動裝備", async () => {
+    const discordUserId = `test-startrpg-${Date.now()}`;
+
+    const user = await RPGService.startRPG(discordUserId, "測試玩家");
+
+    const inventory = await ItemService.getInventory(user.id);
+    expect(inventory.find((r) => r.item.name === "木劍")?.quantity).toBe(1);
+    expect(inventory.find((r) => r.item.name === "皮革護甲")?.quantity).toBe(1);
+    expect(inventory.find((r) => r.item.name === "小型生命藥水")?.quantity).toBe(3);
+
+    const equipped = await ItemService.getEquipped(user.id);
+    expect(equipped.find((e) => e.slot === "weapon")?.equipped?.item.name).toBe("木劍");
+    expect(equipped.find((e) => e.slot === "armor")?.equipped?.item.name).toBe("皮革護甲");
+
+    // 沒送起始金幣，新手要靠打戰鬥自己賺
+    expect(user.gold).toBe(0);
   });
 });
 
