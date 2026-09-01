@@ -20,9 +20,11 @@ function formatBonusEvent(event: BattleBonusEvent): string {
   if (event.type === "item") {
     return `🎒 順手發現了「${event.item.name}」，目前擁有 ${chip(event.quantity)} 個（經驗 +${chip(event.xpGained)}）`;
   }
-  return event.result === "win"
-    ? `⚔️ 途中遭遇菁英「${event.enemyName}」Lv.${event.enemyLevel}，激戰 ${chip(event.rounds)} 回合後獲勝！經驗 +${chip(event.xpGained)}、金幣 +${chip(event.goldGained)}`
-    : `💀 途中遭遇菁英「${event.enemyName}」Lv.${event.enemyLevel}，激戰 ${chip(event.rounds)} 回合後不敵，血量再次受創……`;
+  if (event.result === "lose") {
+    return `💀 途中遭遇菁英「${event.enemyName}」Lv.${event.enemyLevel}，激戰 ${chip(event.rounds)} 回合後不敵，血量再次受創……`;
+  }
+  const rareLootNote = event.rareLoot ? `\n　└ ✨ 還額外掉落了稀有材料「${event.rareLoot.item.name}」！` : "";
+  return `⚔️ 途中遭遇菁英「${event.enemyName}」Lv.${event.enemyLevel}，激戰 ${chip(event.rounds)} 回合後獲勝！經驗 +${chip(event.xpGained)}、金幣 +${chip(event.goldGained)}${rareLootNote}`;
 }
 
 function buildBattleRematchRow(ownerId: string): ActionRowBuilder<ButtonBuilder> {

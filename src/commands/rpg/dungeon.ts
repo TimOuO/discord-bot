@@ -36,7 +36,8 @@ async function runDungeonAndBuildReply(userId: string, username: string, avatarU
   const floorLines = result.floors.map((floor) => {
     const outcome = floor.result === "win" ? "✅ 勝利" : "❌ 落敗";
     const emoji = floor.floor === 4 ? "🏆" : "⚔️";
-    return `${emoji} 第 ${floor.floor} 層：${floor.enemyName} Lv.${floor.enemyLevel} → ${outcome}（${chip(floor.rounds)} 回合）`;
+    const rareLootNote = floor.rareLoot ? `\n　└ ✨ 額外掉落了稀有材料「${floor.rareLoot.item.name}」！` : "";
+    return `${emoji} 第 ${floor.floor} 層：${floor.enemyName} Lv.${floor.enemyLevel} → ${outcome}（${chip(floor.rounds)} 回合）${rareLootNote}`;
   });
 
   const rewardLines = [

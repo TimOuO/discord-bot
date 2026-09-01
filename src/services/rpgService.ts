@@ -136,7 +136,30 @@ export type BattleBonusEvent =
       rounds: number;
       xpGained: number;
       goldGained: number;
+      rareLoot: RareLoot | null;
     };
+
+export interface RareLoot {
+  item: Item;
+  quantity: number;
+}
+
+// 打贏菁英怪/地下城 boss 保證額外掉一件稀有材料，只從 rare/epic/legendary 三階抽（跳過 common/uncommon），
+// 混合 FISH_TABLE/GATHER_TABLE，兩個表的稀有度順序一樣固定是 common/uncommon/rare/epic/legendary，
+// slice(2) 就是拿掉前兩階只留 rare 以上
+async function grantRareLoot(userId: string): Promise<RareLoot | null> {
+  const table = Math.random() < 0.5 ? FISH_TABLE : GATHER_TABLE;
+  const lootName = pickFromWeightedTiers(table.slice(2));
+  const item = await ItemService.findItemByName(lootName);
+  if (!item) return null;
+
+  const inventory = await prisma.inventory.upsert({
+    where: { userId_itemId: { userId, itemId: item.id } },
+    create: { userId, itemId: item.id, quantity: 1 },
+    update: { quantity: { increment: 1 } },
+  });
+  return { item, quantity: inventory.quantity };
+}
 
 // 打贏主戰鬥後才會擲這兩個獨立的骰子（35% 金幣/道具、20% 菁英怪，互不影響，可能同時中）；
 // 菁英怪對打一場用跟主戰鬥、地下城一樣的 simulateCombat()，輸了一樣會把血量砍到有效上限的 30%，
@@ -183,10 +206,12 @@ async function rollBattleBonusEvent(
     const combat = simulateCombat(effectiveStats, enemy, finalHealth);
     let eliteXpGained: number;
     let eliteGoldGained = 0;
+    let rareLoot: RareLoot | null = null;
     if (combat.result === "win") {
       eliteXpGained = Math.round((20 + enemy.level * 6 + randomInt(1, 8)) * (1 + effectiveStats.xpBonus / 100));
       eliteGoldGained = Math.round((15 + enemy.level * 3 + randomInt(0, 8)) * (1 + effectiveStats.goldBonus / 100));
       finalHealth = Math.min(combat.finalHealth + 10, effectiveStats.maxHealth);
+      rareLoot = await grantRareLoot(user.id);
     } else {
       eliteXpGained = Math.max(1, Math.round(enemy.level * 2 * (1 + effectiveStats.xpBonus / 100)));
       finalHealth = Math.max(10, Math.floor(effectiveStats.maxHealth * 0.3));
@@ -202,6 +227,7 @@ async function rollBattleBonusEvent(
       rounds: combat.rounds,
       xpGained: eliteXpGained,
       goldGained: eliteGoldGained,
+      rareLoot,
     });
   }
 
@@ -242,6 +268,7 @@ export interface DungeonFloorResult {
   rounds: number;
   xpGained: number;
   goldGained: number;
+  rareLoot: RareLoot | null;
 }
 
 export type DungeonResult =
@@ -542,11 +569,16 @@ export class RPGService {
 
       let xpGained: number;
       let goldGained = 0;
+      let rareLoot: RareLoot | null = null;
       if (result === "win") {
         xpGained = Math.round((10 + enemy.level * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100));
         goldGained = Math.round((5 + enemy.level * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100));
         // 過關跟 battle() 贏了一樣小回血，但封頂在裝備加成後的上限（等級提升要等整趟結束才結算）
         currentHealth = Math.min(finalHealth + 10, effectiveStats.maxHealth);
+        // 只有 boss 層（第 4 層）打贏才保證額外掉一件稀有材料，前面幾層的普通敵人沒有
+        if (isBoss) {
+          rareLoot = await grantRareLoot(user.id);
+        }
       } else {
         xpGained = Math.max(1, Math.round(enemy.level * 2 * (1 + effectiveStats.xpBonus / 100)));
         // 輸的話跟 battle() 一樣血量掉到有效上限的 30%，整趟到此結束
@@ -555,7 +587,7 @@ export class RPGService {
 
       totalXpGained += xpGained;
       totalGoldGained += goldGained;
-      floors.push({ floor, enemyName: enemy.name, enemyLevel: enemy.level, result, rounds, xpGained, goldGained });
+      floors.push({ floor, enemyName: enemy.name, enemyLevel: enemy.level, result, rounds, xpGained, goldGained, rareLoot });
 
       if (result === "lose") {
         clearedAllFloors = false;

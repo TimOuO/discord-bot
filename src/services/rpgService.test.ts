@@ -4,54 +4,63 @@ import { ItemService } from "./itemService";
 import { createTestUser, createTestItem } from "../../test/helpers";
 import prisma from "./dbService";
 
-// 跟 rpgService.ts 的 FISH_TABLE/GATHER_TABLE 對應：battle() 額外事件的道具獎勵、fish()/gather() 本身
-// 都要抽到這些名字，放在檔案最上層用同一個 beforeAll 種好，不用管哪個 describe 先跑
-const FISH_NAMES = [
-  "小魚乾", "泥鰍", "吳郭魚",
-  "虹鱒", "鯖魚", "花枝",
-  "銀鱗鮭", "龍虎斑", "紅魽",
-  "深海鮟鱇魚", "電鰻", "小鯊魚",
-  "黃金鯉魚", "傳說錦鯉", "神秘魚王",
+// 跟 rpgService.ts 的 FISH_TABLE/GATHER_TABLE 對應（含稀有度，順序一致）：battle() 額外事件的道具/
+// 稀有材料獎勵、fish()/gather() 本身都要抽到這些名字，放在檔案最上層用同一個 beforeAll 種好，
+// 不用管哪個 describe 先跑；稀有度要跟正式的 seedFishItems/seedGatherItems 一致，
+// 不能全部都塞 common，不然測「掉落的稀有度要是 rare 以上」這類斷言會失真
+const FISH_TIERS = [
+  { rarity: "common", names: ["小魚乾", "泥鰍", "吳郭魚"] },
+  { rarity: "uncommon", names: ["虹鱒", "鯖魚", "花枝"] },
+  { rarity: "rare", names: ["銀鱗鮭", "龍虎斑", "紅魽"] },
+  { rarity: "epic", names: ["深海鮟鱇魚", "電鰻", "小鯊魚"] },
+  { rarity: "legendary", names: ["黃金鯉魚", "傳說錦鯉", "神秘魚王"] },
 ];
 
-const GATHER_NAMES = [
-  "樹枝", "石頭", "麻繩",
-  "鐵礦", "煤炭", "硬木",
-  "銀礦", "玉石", "陳年木材",
-  "金礦", "藍水晶", "魔力碎片",
-  "紫水晶", "星隕石", "遠古符文石",
+const GATHER_TIERS = [
+  { rarity: "common", names: ["樹枝", "石頭", "麻繩"] },
+  { rarity: "uncommon", names: ["鐵礦", "煤炭", "硬木"] },
+  { rarity: "rare", names: ["銀礦", "玉石", "陳年木材"] },
+  { rarity: "epic", names: ["金礦", "藍水晶", "魔力碎片"] },
+  { rarity: "legendary", names: ["紫水晶", "星隕石", "遠古符文石"] },
 ];
+
+const FISH_NAMES = FISH_TIERS.flatMap((tier) => tier.names);
+const GATHER_NAMES = GATHER_TIERS.flatMap((tier) => tier.names);
 
 beforeAll(async () => {
-  for (const name of FISH_NAMES) {
-    await prisma.item.upsert({
-      where: { name },
-      create: {
-        name,
-        description: "測試用魚",
-        type: "fish",
-        rarity: "common",
-        cost: 10,
-        effectType: "none",
-        effectValue: 0,
-      },
-      update: {},
-    });
+  for (const { rarity, names } of FISH_TIERS) {
+    for (const name of names) {
+      await prisma.item.upsert({
+        where: { name },
+        create: {
+          name,
+          description: "測試用魚",
+          type: "fish",
+          rarity,
+          cost: 10,
+          effectType: "none",
+          effectValue: 0,
+        },
+        update: {},
+      });
+    }
   }
-  for (const name of GATHER_NAMES) {
-    await prisma.item.upsert({
-      where: { name },
-      create: {
-        name,
-        description: "測試用材料",
-        type: "material",
-        rarity: "common",
-        cost: 10,
-        effectType: "none",
-        effectValue: 0,
-      },
-      update: {},
-    });
+  for (const { rarity, names } of GATHER_TIERS) {
+    for (const name of names) {
+      await prisma.item.upsert({
+        where: { name },
+        create: {
+          name,
+          description: "測試用材料",
+          type: "material",
+          rarity,
+          cost: 10,
+          effectType: "none",
+          effectValue: 0,
+        },
+        update: {},
+      });
+    }
   }
 });
 
@@ -272,6 +281,28 @@ describe("RPGService.battle", () => {
       expect(row?.quantity).toBe(itemEvent.quantity);
     }
   });
+
+  it("打贏菁英怪保證額外掉一件稀有材料，稀有度要是 rare/epic/legendary 之一", async () => {
+    const { discordUserId, user } = await createTestUser({ attack: 9999, defense: 9999 });
+
+    let eliteEvent;
+    for (let i = 0; i < 60; i++) {
+      const result = await RPGService.battle(discordUserId);
+      eliteEvent = result.bonusEvents.find((e) => e.type === "elite" && e.result === "win");
+      if (eliteEvent) break;
+      await prisma.user.update({ where: { userId: discordUserId }, data: { lastBattle: null } });
+    }
+
+    expect(eliteEvent).toBeDefined();
+    if (eliteEvent && eliteEvent.type === "elite") {
+      expect(eliteEvent.rareLoot).not.toBeNull();
+      expect(["rare", "epic", "legendary"]).toContain(eliteEvent.rareLoot?.item.rarity);
+
+      const inventory = await ItemService.getInventory(user.id);
+      const row = inventory.find((r) => r.itemId === eliteEvent.rareLoot?.item.id);
+      expect(row?.quantity).toBe(eliteEvent.rareLoot?.quantity);
+    }
+  });
 });
 
 describe("RPGService.dungeon", () => {
@@ -313,6 +344,12 @@ describe("RPGService.dungeon", () => {
       // 每層一擊必殺、敵人完全沒機會反擊，血量不該掉，加上每層過關的 +10 回血封頂，最終應該還是滿血
       expect(result.user.health).toBe(result.user.maxHealth);
       expect(result.user.gold).toBeGreaterThan(user.gold);
+      // 只有第 4 層 boss 打贏保證掉一件稀有材料，前 3 層普通敵人沒有
+      expect(result.floors[0].rareLoot).toBeNull();
+      expect(result.floors[1].rareLoot).toBeNull();
+      expect(result.floors[2].rareLoot).toBeNull();
+      expect(result.floors[3].rareLoot).not.toBeNull();
+      expect(["rare", "epic", "legendary"]).toContain(result.floors[3].rareLoot?.item.rarity);
     }
   });
 
