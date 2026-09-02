@@ -225,7 +225,9 @@ export class ItemService {
     return result;
   }
 
-  static async buyItem(userInternalId: string, itemName: string) {
+  static async buyItem(userInternalId: string, itemName: string, amount = 1) {
+    if (amount < 1) throw new Error("購買數量至少要 1 個");
+
     const item = await this.findItemByName(itemName);
     if (!item) throw new Error(`商店裡沒有「${itemName}」這件道具`);
     if (!item.purchasable) {
@@ -237,27 +239,28 @@ export class ItemService {
       throw new Error(`「${item.name}」不是商店販售的商品，${hint}才拿得到！`);
     }
 
+    const totalCost = item.cost * amount;
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userInternalId } });
-    if (user.gold < item.cost) {
+    if (user.gold < totalCost) {
       throw new Error(
-        `金幣不夠，「${item.name}」要 ${item.cost} 金幣，你只有 ${user.gold} 金幣`
+        `金幣不夠，「${item.name}」x${amount} 要 ${totalCost} 金幣，你只有 ${user.gold} 金幣`
       );
     }
 
     const [, inventory] = await prisma.$transaction([
       prisma.user.update({
         where: { id: userInternalId },
-        data: { gold: { decrement: item.cost } },
+        data: { gold: { decrement: totalCost } },
       }),
       prisma.inventory.upsert({
         where: { userId_itemId: { userId: userInternalId, itemId: item.id } },
-        create: { userId: userInternalId, itemId: item.id, quantity: 1 },
-        update: { quantity: { increment: 1 } },
+        create: { userId: userInternalId, itemId: item.id, quantity: amount },
+        update: { quantity: { increment: amount } },
       }),
     ]);
 
     const autoEquipped = await this.maybeAutoEquip(userInternalId, item);
-    return { item, quantity: inventory.quantity, autoEquippedSlot: autoEquipped?.slot ?? null };
+    return { item, quantity: inventory.quantity, boughtAmount: amount, totalCost, autoEquippedSlot: autoEquipped?.slot ?? null };
   }
 
   // 買到裝備時自動判斷要不要裝上：
@@ -318,7 +321,8 @@ export class ItemService {
     return this.sellItemQuantity(userInternalId, item, sellableQuantity);
   }
 
-  private static async getSellableQuantity(userInternalId: string, itemId: string): Promise<number> {
+  // public：inventory.ts 要在「賣出」按鈕上直接標出可賣數量/總價（裝備中的不算），不用等按下去才知道
+  static async getSellableQuantity(userInternalId: string, itemId: string): Promise<number> {
     const inventory = await prisma.inventory.findUnique({
       where: { userId_itemId: { userId: userInternalId, itemId } },
     });
@@ -369,7 +373,11 @@ export class ItemService {
     return { item, sellPrice, amount, goldAfter: updatedUser.gold };
   }
 
-  static async useItem(userInternalId: string, itemName: string) {
+  // amount 是玩家「最多」想用幾個；實際消耗會封頂在「回滿血量所需的數量」，
+  // 不會因為選太多而白白浪費藥水（usedAmount 可能小於 amount，回傳給呼叫端顯示用）
+  static async useItem(userInternalId: string, itemName: string, amount = 1) {
+    if (amount < 1) throw new Error("使用數量至少要 1 個");
+
     const item = await this.findItemByName(itemName);
     if (!item) throw new Error(`「${itemName}」不是有效的道具名稱`);
     if (item.type !== "potion") {
@@ -381,6 +389,9 @@ export class ItemService {
     });
     if (!inventory || inventory.quantity <= 0) {
       throw new Error(`你沒有「${item.name}」可以使用`);
+    }
+    if (amount > inventory.quantity) {
+      throw new Error(`「${item.name}」只有 ${inventory.quantity} 個，不能使用 ${amount} 個`);
     }
 
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userInternalId } });
@@ -396,22 +407,26 @@ export class ItemService {
       );
     }
 
-    const newHealth = Math.min(user.health + item.effectValue, effectiveStats.maxHealth);
+    const neededToFull = effectiveStats.maxHealth - user.health;
+    const potionsNeeded = Math.max(1, Math.ceil(neededToFull / item.effectValue));
+    const usedAmount = Math.min(amount, potionsNeeded);
+
+    const newHealth = Math.min(user.health + item.effectValue * usedAmount, effectiveStats.maxHealth);
     const healedAmount = newHealth - user.health;
 
     await prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id: userInternalId }, data: { health: newHealth } });
-      if (inventory.quantity - 1 <= 0) {
+      if (inventory.quantity - usedAmount <= 0) {
         await tx.inventory.delete({ where: { id: inventory.id } });
       } else {
         await tx.inventory.update({
           where: { id: inventory.id },
-          data: { quantity: { decrement: 1 } },
+          data: { quantity: { decrement: usedAmount } },
         });
       }
     });
 
-    return { item, healedAmount, newHealth, maxHealth: effectiveStats.maxHealth };
+    return { item, healedAmount, newHealth, maxHealth: effectiveStats.maxHealth, usedAmount, requestedAmount: amount };
   }
 
   // preferredSlot 給飾品指定要換掉 accessory1 還是 accessory2；不指定時維持原本「優先塞空格，

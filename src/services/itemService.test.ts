@@ -57,6 +57,26 @@ describe("ItemService.buyItem", () => {
 
     expect(result.autoEquippedSlot).toBe("weapon");
   });
+
+  it("可以一次指定數量購買多個，金額跟庫存都照數量計算", async () => {
+    const { user } = await createTestUser({ gold: 1000 });
+    const item = await createTestItem({ type: "potion", cost: 60, effectType: "heal", effectValue: 30 });
+
+    const result = await ItemService.buyItem(user.id, item.name, 3);
+
+    expect(result.boughtAmount).toBe(3);
+    expect(result.totalCost).toBe(180);
+    expect(result.quantity).toBe(3);
+    const updatedUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(updatedUser.gold).toBe(820);
+  });
+
+  it("金幣不夠買指定數量時拒絕", async () => {
+    const { user } = await createTestUser({ gold: 100 });
+    const item = await createTestItem({ cost: 60 });
+
+    await expect(ItemService.buyItem(user.id, item.name, 2)).rejects.toThrow("金幣不夠");
+  });
 });
 
 describe("ItemService.sellItem", () => {
@@ -189,6 +209,42 @@ describe("ItemService.useItem", () => {
     await ItemService.buyItem(user.id, potion.name);
 
     await expect(ItemService.useItem(user.id, potion.name)).rejects.toThrow("已經是滿的");
+  });
+
+  it("一次使用多個藥水時，多份療效會疊加", async () => {
+    const { user } = await createTestUser({ gold: 1000, health: 10, maxHealth: 200 });
+    const potion = await createTestItem({ type: "potion", cost: 20, effectType: "heal", effectValue: 30 });
+    await ItemService.buyItem(user.id, potion.name, 3);
+
+    const result = await ItemService.useItem(user.id, potion.name, 3);
+
+    expect(result.usedAmount).toBe(3);
+    expect(result.healedAmount).toBe(90);
+    expect(result.newHealth).toBe(100);
+    const inventory = await ItemService.getInventory(user.id);
+    expect(inventory.find((row) => row.itemId === potion.id)).toBeUndefined(); // 全部用完，該行應該被刪除
+  });
+
+  it("要求的數量超過回滿血量所需時，只用剛好回滿的數量，不浪費藥水", async () => {
+    const { user } = await createTestUser({ gold: 1000, health: 90, maxHealth: 100 });
+    const potion = await createTestItem({ type: "potion", cost: 20, effectType: "heal", effectValue: 30 });
+    await ItemService.buyItem(user.id, potion.name, 5);
+
+    const result = await ItemService.useItem(user.id, potion.name, 5);
+
+    expect(result.usedAmount).toBe(1); // 差 10 點，1 瓶（+30）就回滿了，不用把 5 瓶都喝掉
+    expect(result.requestedAmount).toBe(5);
+    expect(result.newHealth).toBe(100);
+    const inventory = await ItemService.getInventory(user.id);
+    expect(inventory.find((row) => row.itemId === potion.id)?.quantity).toBe(4);
+  });
+
+  it("要求使用的數量超過庫存時拒絕", async () => {
+    const { user } = await createTestUser({ gold: 1000, health: 10, maxHealth: 200 });
+    const potion = await createTestItem({ type: "potion", cost: 20, effectType: "heal", effectValue: 30 });
+    await ItemService.buyItem(user.id, potion.name, 2);
+
+    await expect(ItemService.useItem(user.id, potion.name, 5)).rejects.toThrow("只有 2 個");
   });
 });
 
