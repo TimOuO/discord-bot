@@ -20,6 +20,7 @@ import {
   formatEffectValue,
 } from "../../services/itemService";
 import type { EquipSlot } from "../../services/itemService";
+import type { Item } from "../../generated/prisma";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 
@@ -80,6 +81,7 @@ async function buildInventoryView(
     .setColor("#9b59b6" as ColorResolvable)
     .setFooter({ text: "選單選道具後可以直接裝備/使用/賣掉" })
     .addFields(
+      sectionField("💰", "金幣", [`${chip(user.gold)}`]),
       sectionField("📊", "有效屬性（基礎 + 裝備加成）", [
         `攻擊力 ${chip(effectiveStats.attack)}（基礎 ${chip(user.attack)}）`,
         `防禦力 ${chip(effectiveStats.defense)}（基礎 ${chip(user.defense)}）`,
@@ -88,16 +90,18 @@ async function buildInventoryView(
       sectionField("🎒", "裝備欄", (() => {
         const weaponEq = equipped.find((e) => e.slot === "weapon")?.equipped;
         const armorEq = equipped.find((e) => e.slot === "armor")?.equipped;
-        // 飾品欄 1/2/3 對玩家來說沒有實質差異，合併成一行顯示，不用暴露內部欄位編號
-        const accessoryEqs = equipped
-          .filter((e) => (ACCESSORY_SLOTS as readonly string[]).includes(e.slot))
-          .map((e) => e.equipped)
-          .filter((eq): eq is NonNullable<typeof eq> => eq !== null);
+        // 飾品欄 1/2/3 對玩家來說沒有實質差異，不暴露內部欄位編號；
+        // 但每一格都要各自列出（含空格），不然只裝了 1、2 件時看不出來還有空位可以裝
+        const accessoryLines = ACCESSORY_SLOTS.map((slot) => {
+          const eq = equipped.find((e) => e.slot === slot)?.equipped;
+          return eq ? formatEquippedItem(eq.item) : "（空）";
+        });
+        const filledCount = accessoryLines.filter((line) => line !== "（空）").length;
 
         return [
           `武器：${weaponEq ? formatEquippedItem(weaponEq.item) : "（空）"}`,
           `防具：${armorEq ? formatEquippedItem(armorEq.item) : "（空）"}`,
-          `飾品：${accessoryEqs.length > 0 ? accessoryEqs.map((eq) => formatEquippedItem(eq.item)).join("、") : "（空）"}`,
+          `飾品（${filledCount}/${ACCESSORY_SLOTS.length}）：${accessoryLines.join("、")}`,
         ];
       })())
     );
@@ -105,7 +109,7 @@ async function buildInventoryView(
   const components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[] = [];
 
   if (inventory.length === 0) {
-    embed.addFields(sectionField("🧳", "道具", ["背包是空的，去 `/rpg shop list` 逛逛吧！"]));
+    embed.addFields(sectionField("🧳", "道具", ["背包是空的，去 `/rpg shop` 逛逛吧！"]));
     return { embeds: [embed], components };
   }
 
@@ -168,35 +172,123 @@ async function buildInventoryView(
   return { embeds: [embed], components };
 }
 
+// 加減按鈕＋中間的確認鍵放同一排（Discord 一排最多 5 顆按鈕，剛好塞下）；
+// 實際會用掉幾個由 ItemService.useItem 依「回滿血量所需」封頂，這裡的 qty 只是「最多想用幾個」。
+// customId 帶的是「目前數量＋位移量」而不是預先算好的目標值——qty 接近上下限時 -5/-1（或 +1/+5）
+// 夾出來的目標值可能一樣，直接把目標值編進 customId 會撞成重複 ID 被 Discord 整張卡片拒收；
+// 改成帶位移量，實際目標值交給按下去之後的 handler 去夾，永遠不會撞
+function buildUseQuantityRow(
+  ownerId: string,
+  page: number,
+  itemName: string,
+  qty: number,
+  maxQty: number
+): ActionRowBuilder<ButtonBuilder> {
+  const atMin = qty <= 1;
+  const atMax = qty >= maxQty;
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_use_qty", ownerId, String(page), itemName, String(qty), "-5"))
+      .setLabel("-5")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMin),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_use_qty", ownerId, String(page), itemName, String(qty), "-1"))
+      .setLabel("-1")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMin),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_use", ownerId, String(page), itemName, String(qty)))
+      .setLabel(`使用 x${qty}`)
+      .setEmoji("🧪")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_use_qty", ownerId, String(page), itemName, String(qty), "1"))
+      .setLabel("+1")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMax),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_use_qty", ownerId, String(page), itemName, String(qty), "5"))
+      .setLabel("+5")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMax)
+  );
+}
+
+// 跟 buildUseQuantityRow 同樣的道理：customId 帶「目前數量＋位移量」，不要把夾好的目標值直接編進去，
+// 避免 qty 接近上下限時兩顆按鈕撞出同一個 customId 被 Discord 拒收。
+// 預設數量＝可賣的最大值（等於「賣光」），可以用 -1/-5 往下調、保留幾個不賣
+function buildSellQuantityRow(
+  ownerId: string,
+  page: number,
+  itemName: string,
+  qty: number,
+  unitPrice: number,
+  maxQty: number
+): ActionRowBuilder<ButtonBuilder> {
+  const atMin = qty <= 1;
+  const atMax = qty >= maxQty;
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_sell_qty", ownerId, String(page), itemName, String(qty), "-5"))
+      .setLabel("-5")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMin),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_sell_qty", ownerId, String(page), itemName, String(qty), "-1"))
+      .setLabel("-1")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMin),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_sell", ownerId, String(page), itemName, String(qty)))
+      .setLabel(`賣出 x${qty}（${unitPrice * qty} 金幣）`)
+      .setEmoji("💰")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_sell_qty", ownerId, String(page), itemName, String(qty), "1"))
+      .setLabel("+1")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMax),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("inv_sell_qty", ownerId, String(page), itemName, String(qty), "5"))
+      .setLabel("+5")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMax)
+  );
+}
+
 // 飾品欄都滿時不能悶著頭自動選一欄頂掉，要讓玩家自己指定換哪一欄，
-// 所以這裡要另外查目前的裝備狀態，跟其他分支不一樣
-async function buildItemActionRow(
+// 所以這裡要另外查目前的裝備狀態，跟其他分支不一樣；
+// 藥水的使用數量、賣出數量各自成一排（跟裝備按鈕分開，避免同一排塞不下）
+async function buildItemActionRows(
   userInternalId: string,
   ownerId: string,
   page: number,
-  itemType: string,
-  itemName: string
-): Promise<ActionRowBuilder<ButtonBuilder>> {
-  const buttons: ButtonBuilder[] = [];
+  item: Item,
+  options: { useQty?: number; sellQty?: number } = {}
+): Promise<ActionRowBuilder<ButtonBuilder>[]> {
+  const equipButtons: ButtonBuilder[] = [];
 
-  if (itemType === "weapon" || itemType === "armor") {
-    buttons.push(
+  if (item.type === "weapon" || item.type === "armor") {
+    equipButtons.push(
       new ButtonBuilder()
-        .setCustomId(buildCustomId("inv_equip", ownerId, String(page), itemName))
+        .setCustomId(buildCustomId("inv_equip", ownerId, String(page), item.name))
         .setLabel("裝備")
         .setEmoji("🛡️")
         .setStyle(ButtonStyle.Primary)
     );
-  } else if (itemType === "accessory") {
+  } else if (item.type === "accessory") {
     const equipped = await ItemService.getEquipped(userInternalId);
     const bySlot = ACCESSORY_SLOTS.map((slot) => equipped.find((e) => e.slot === slot)?.equipped ?? null);
     const hasEmptySlot = bySlot.some((eq) => !eq);
 
     if (hasEmptySlot) {
       // 至少一欄是空的，不會有歧義，直接用自動選擇邏輯裝上去
-      buttons.push(
+      equipButtons.push(
         new ButtonBuilder()
-          .setCustomId(buildCustomId("inv_equip", ownerId, String(page), itemName))
+          .setCustomId(buildCustomId("inv_equip", ownerId, String(page), item.name))
           .setLabel("裝備")
           .setEmoji("🛡️")
           .setStyle(ButtonStyle.Primary)
@@ -204,9 +296,9 @@ async function buildItemActionRow(
     } else {
       ACCESSORY_SLOTS.forEach((slot, i) => {
         const eq = bySlot[i]!;
-        buttons.push(
+        equipButtons.push(
           new ButtonBuilder()
-            .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), itemName, slot))
+            .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), item.name, slot))
             .setLabel(`換掉「${eq.item.name}」`)
             .setEmoji("🛡️")
             .setStyle(ButtonStyle.Primary)
@@ -214,24 +306,40 @@ async function buildItemActionRow(
       });
     }
   }
-  if (itemType === "potion") {
-    buttons.push(
-      new ButtonBuilder()
-        .setCustomId(buildCustomId("inv_use", ownerId, String(page), itemName))
-        .setLabel("使用")
-        .setEmoji("🧪")
-        .setStyle(ButtonStyle.Primary)
+
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+  if (equipButtons.length > 0) {
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...equipButtons));
+  }
+
+  if (item.type === "potion") {
+    const inventory = await ItemService.getInventory(userInternalId);
+    const owned = inventory.find((row) => row.itemId === item.id)?.quantity ?? 1;
+    const useMaxQty = Math.max(1, Math.min(99, owned));
+    const useQty = Math.min(Math.max(1, options.useQty ?? 1), useMaxQty);
+    rows.push(buildUseQuantityRow(ownerId, page, item.name, useQty, useMaxQty));
+  }
+
+  // 賣出的數量上限是「實際賣得動」的數量（裝備中的排除在外）；全部都裝備中時沒有東西可以調整數量，改顯示停用的單一按鈕
+  const sellableQty = await ItemService.getSellableQuantity(userInternalId, item.id);
+  const unitPrice = ItemService.getSellPricePerUnit(item);
+  if (sellableQty > 0) {
+    const sellQty = Math.min(Math.max(1, options.sellQty ?? sellableQty), sellableQty);
+    rows.push(buildSellQuantityRow(ownerId, page, item.name, sellQty, unitPrice, sellableQty));
+  } else {
+    rows.push(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(buildCustomId("inv_sell", ownerId, String(page), item.name, "0"))
+          .setLabel("全部賣掉（裝備中，無法賣）")
+          .setEmoji("💰")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true)
+      )
     );
   }
-  buttons.push(
-    new ButtonBuilder()
-      .setCustomId(buildCustomId("inv_sell", ownerId, String(page), itemName))
-      .setLabel("全部賣掉")
-      .setEmoji("💰")
-      .setStyle(ButtonStyle.Secondary)
-  );
 
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons);
+  return rows;
 }
 
 export async function handleInventoryCommand(interaction: ChatInputCommandInteraction) {
@@ -273,6 +381,32 @@ export async function handleInventoryPageButton(interaction: ButtonInteraction) 
   }
 }
 
+// inv_select（選定道具）跟 inv_use_qty/inv_sell_qty（調整數量）共用：重繪背包 + 該道具的動作按鈕
+async function renderItemSelection(
+  interaction: StringSelectMenuInteraction | ButtonInteraction,
+  ownerId: string,
+  page: number,
+  itemName: string,
+  options: { useQty?: number; sellQty?: number } = {}
+) {
+  const view = await buildInventoryView(
+    interaction.user.id,
+    ownerId,
+    page,
+    interaction.user.username,
+    interaction.user.displayAvatarURL(),
+    itemName
+  );
+  const item = await ItemService.findItemByName(itemName);
+  if (item) {
+    const user = await RPGService.findUserByDiscordId(interaction.user.id);
+    if (user) {
+      view.components.push(...(await buildItemActionRows(user.id, ownerId, page, item, options)));
+    }
+  }
+  await interaction.editReply(view);
+}
+
 export async function handleInventorySelect(interaction: StringSelectMenuInteraction) {
   const { ownerId, args } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
@@ -281,22 +415,41 @@ export async function handleInventorySelect(interaction: StringSelectMenuInterac
 
   await interaction.deferUpdate();
   try {
-    const view = await buildInventoryView(
-      interaction.user.id,
-      ownerId,
-      page,
-      interaction.user.username,
-      interaction.user.displayAvatarURL(),
-      itemName
-    );
-    const item = await ItemService.findItemByName(itemName);
-    if (item) {
-      const user = await RPGService.findUserByDiscordId(interaction.user.id);
-      if (user) {
-        view.components.push(await buildItemActionRow(user.id, ownerId, page, item.type, item.name));
-      }
-    }
-    await interaction.editReply(view);
+    await renderItemSelection(interaction, ownerId, page, itemName);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.editReply({ content: message, embeds: [], components: [] });
+  }
+}
+
+// interactionCreate.ts 會把 "inv_use_qty:*" 的按鈕點擊導到這裡；只調整想用幾個、還沒真的使用
+export async function handleInventoryUseQtyButton(interaction: ButtonInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+  const [pageStr, itemName, currentQtyStr, deltaStr] = args;
+  const page = parseInt(pageStr, 10);
+  const nextQty = parseInt(currentQtyStr, 10) + parseInt(deltaStr, 10);
+
+  await interaction.deferUpdate();
+  try {
+    await renderItemSelection(interaction, ownerId, page, itemName, { useQty: nextQty });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.editReply({ content: message, embeds: [], components: [] });
+  }
+}
+
+// interactionCreate.ts 會把 "inv_sell_qty:*" 的按鈕點擊導到這裡；只調整想賣幾個、還沒真的賣出
+export async function handleInventorySellQtyButton(interaction: ButtonInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+  const [pageStr, itemName, currentQtyStr, deltaStr] = args;
+  const page = parseInt(pageStr, 10);
+  const nextQty = parseInt(currentQtyStr, 10) + parseInt(deltaStr, 10);
+
+  await interaction.deferUpdate();
+  try {
+    await renderItemSelection(interaction, ownerId, page, itemName, { sellQty: nextQty });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await interaction.editReply({ content: message, embeds: [], components: [] });
@@ -359,14 +512,29 @@ export async function handleInventoryEquipSlotButton(interaction: ButtonInteract
 export async function handleInventoryUseButton(interaction: ButtonInteraction) {
   const { ownerId, args } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
-  const { page, itemName } = parsePageAndItemName(args);
+  const [pageStr, itemName, qtyStr] = args;
+  const page = parseInt(pageStr, 10);
+  const qty = Math.max(1, parseInt(qtyStr, 10) || 1);
 
   await interaction.deferUpdate();
   try {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
-    await ItemService.useItem(user.id, itemName);
+    const { item, healedAmount, newHealth, maxHealth, usedAmount, requestedAmount } = await ItemService.useItem(
+      user.id,
+      itemName,
+      qty
+    );
     await refreshInventoryView(interaction, ownerId, page);
+
+    const wasteNote =
+      usedAmount < requestedAmount
+        ? `（已回滿生命值，只用了 ${usedAmount} 個，其餘 ${requestedAmount - usedAmount} 個沒有浪費）`
+        : "";
+    await interaction.followUp({
+      content: `🧪 使用了「${item.name}」x${usedAmount}${wasteNote}，恢復了 ${healedAmount} 點生命值！目前生命值：${newHealth}/${maxHealth}`,
+      flags: MessageFlags.Ephemeral,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await interaction.followUp({ content: `使用失敗：${message}`, flags: MessageFlags.Ephemeral });
@@ -376,14 +544,20 @@ export async function handleInventoryUseButton(interaction: ButtonInteraction) {
 export async function handleInventorySellButton(interaction: ButtonInteraction) {
   const { ownerId, args } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
-  const { page, itemName } = parsePageAndItemName(args);
+  const [pageStr, itemName, qtyStr] = args;
+  const page = parseInt(pageStr, 10);
+  const qty = Math.max(1, parseInt(qtyStr, 10) || 1);
 
   await interaction.deferUpdate();
   try {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
-    await ItemService.sellAllOfItem(user.id, itemName);
+    const { item, sellPrice, amount, goldAfter } = await ItemService.sellItem(user.id, itemName, qty);
     await refreshInventoryView(interaction, ownerId, page);
+    await interaction.followUp({
+      content: `💰 賣掉「${item.name}」x${amount}，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`,
+      flags: MessageFlags.Ephemeral,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await interaction.followUp({ content: `販賣失敗：${message}`, flags: MessageFlags.Ephemeral });

@@ -278,7 +278,7 @@ export async function handleCraftMakeButton(interaction: ButtonInteraction) {
   try {
     const payload = await replyCraftSuccess(interaction.user.id, itemName);
 
-    // 鍛造完回到清單瀏覽狀態（跟 shop list 的快捷購買一致），材料有沒有變化清單上會直接看到
+    // 鍛造完回到清單瀏覽狀態（跟 shop 的快捷購買一致），材料有沒有變化清單上會直接看到
     const view = await buildCraftListView(interaction.user.id, ownerId, page);
     await interaction.editReply(view);
     await interaction.followUp({ content: "🔨 鍛造成功！", flags: MessageFlags.Ephemeral, embeds: payload.embeds });

@@ -1,180 +1,266 @@
 import {
   ChatInputCommandInteraction,
-  AutocompleteInteraction,
   ButtonInteraction,
+  StringSelectMenuInteraction,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   ActionRowBuilder,
   EmbedBuilder,
   ColorResolvable,
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
-import { ItemService, SLOT_GROUP_LABELS, formatEffectValue } from "../../services/itemService";
+import {
+  ItemService,
+  TYPE_EMOJIS,
+  TYPE_LABELS,
+  EQUIPPABLE_TYPES,
+  formatEffectValue,
+  SLOT_GROUP_LABELS,
+} from "../../services/itemService";
 import type { Item } from "../../generated/prisma";
-import { chip } from "../../utils/embeds";
+import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 
-export async function handleShopBuy(interaction: ChatInputCommandInteraction) {
-  try {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+const PAGE_SIZE = 10;
+const MAX_BUY_QUANTITY = 99;
 
-    const user = await RPGService.findUserByDiscordId(interaction.user.id);
-    if (!user) {
-      return interaction.editReply(
-        "你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！"
-      );
-    }
+type ShopView = {
+  embeds: EmbedBuilder[];
+  components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[];
+};
 
-    const itemName = interaction.options.getString("item", true);
-    const { item, quantity, autoEquippedSlot } = await ItemService.buyItem(
-      user.id,
-      itemName
-    );
-
-    const equipNote = autoEquippedSlot
-      ? `，並自動裝備為${SLOT_GROUP_LABELS[autoEquippedSlot]}！`
-      : "";
-
-    return interaction.editReply(
-      `✅ 花費 ${item.cost} 金幣購買了「${item.name}」！目前擁有 ${quantity} 個${equipNote}`
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return interaction.editReply(`購買失敗：${message}`);
+function formatItemEffects(item: Item): string {
+  const effects = [formatEffectValue(item.effectType, item.effectValue)];
+  if (item.effectType2 && item.effectValue2 != null) {
+    effects.push(formatEffectValue(item.effectType2, item.effectValue2));
   }
+  return effects.join("、");
 }
 
-function buildSellAllRow(
+// 買得起幾個就給幾個選（上限 99，避免數字誇張），金幣不夠買 1 個時回傳 0
+function computeMaxBuyable(gold: number, cost: number): number {
+  if (cost <= 0) return MAX_BUY_QUANTITY;
+  return Math.max(0, Math.min(MAX_BUY_QUANTITY, Math.floor(gold / cost)));
+}
+
+// 不用記憶體存分頁狀態，customId 直接帶頁碼，資料每次都即時查，機器人重啟也不會讓按鈕失效；
+// 商店清單本身是公開資訊（誰都能看），但只有當初下指令的人（ownerId）能操作按鈕/選單
+async function buildShopView(
+  ownerDiscordId: string,
   ownerId: string,
+  page: number,
+  selectedItemName?: string
+): Promise<ShopView> {
+  const items = await ItemService.getShopCatalog();
+  const owner = await RPGService.findUserByDiscordId(ownerDiscordId);
+  const equipped = owner ? await ItemService.getEquipped(owner.id) : [];
+
+  const embed = new EmbedBuilder()
+    .setTitle("🛒 商店")
+    .setColor("#f39c12" as ColorResolvable);
+
+  if (owner) {
+    embed.addFields(sectionField("💰", "你的金幣", [`${chip(owner.gold)}`]));
+  }
+
+  const components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[] = [];
+
+  if (items.length === 0) {
+    embed.addFields(sectionField("🛒", "商品", ["商店目前沒有東西可以買"]));
+    return { embeds: [embed], components };
+  }
+
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
+  const pageItems = items.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
+
+  // 照類型分類、插入分類標題；同一頁裡類型一換就插新標題，武器/防具/飾品優先顯示在前面幾頁
+  const lines: string[] = [];
+  let lastType: string | null = null;
+  for (const item of pageItems) {
+    if (item.type !== lastType) {
+      lastType = item.type;
+      const headerEmoji = TYPE_EMOJIS[item.type] ?? "🛒";
+      const headerLabel = TYPE_LABELS[item.type] ?? item.type;
+      lines.push(`${headerEmoji}｜${headerLabel}`);
+    }
+
+    const effectText =
+      EQUIPPABLE_TYPES.includes(item.type) && owner
+        ? ItemService.computeEquipComparison(item.type, item, equipped)
+        : formatItemEffects(item);
+    lines.push(`　**${item.name}** — ${chip(item.cost)} 金幣（${effectText}）`);
+  }
+  embed.addFields(sectionField("🛒", `商品（第 ${clampedPage + 1}/${totalPages} 頁）`, lines));
+  embed.setFooter({ text: "選單選商品後可以用按鈕選數量購買" });
+
+  if (totalPages > 1) {
+    components.push(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(buildCustomId("shop_page", ownerId, String(clampedPage - 1)))
+          .setLabel("◀ 上一頁")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(clampedPage === 0),
+        new ButtonBuilder()
+          .setCustomId(buildCustomId("shop_page", ownerId, String(clampedPage + 1)))
+          .setLabel("下一頁 ▶")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(clampedPage === totalPages - 1)
+      )
+    );
+  }
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(buildCustomId("shop_select", ownerId, String(clampedPage)))
+    .setPlaceholder("選一個商品來購買")
+    .addOptions(
+      pageItems.map((item) => ({
+        label: `${item.name}（${item.cost} 金幣・${formatItemEffects(item)}）`.slice(0, 100),
+        value: item.name,
+        default: item.name === selectedItemName,
+      }))
+    );
+  components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+
+  return { embeds: [embed], components };
+}
+
+// 加減按鈕＋中間的確認鍵放同一排（Discord 一排最多 5 顆按鈕，剛好塞下）；
+// qty 卡在 [1, maxQty]，買不起（maxQty 0）時確認鍵會被停用但仍然看得到價格。
+// customId 帶的是「目前數量＋位移量」而不是預先算好的目標值——目標值在 qty 接近上下限時，
+// -5 跟 -1（或 +1 跟 +5）夾出來的結果可能會一樣，若直接把目標值編進 customId 會撞成重複 ID，
+// Discord 會直接拒收整張卡片；改成帶位移量，實際目標值交給按下去之後的 handler 去夾，永遠不會撞
+function buildBuyQuantityRow(
+  ownerId: string,
+  page: number,
   itemName: string,
-  remainingQuantity: number,
-  totalPrice: number
+  qty: number,
+  cost: number,
+  maxQty: number
 ): ActionRowBuilder<ButtonBuilder> {
+  const atMin = qty <= 1;
+  const atMax = qty >= maxQty;
+
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(buildCustomId("shop_sell_all", ownerId, itemName))
-      .setLabel(`全部賣掉（${remainingQuantity} 個・${totalPrice} 金幣）`)
-      .setEmoji("💰")
+      .setCustomId(buildCustomId("shop_qty", ownerId, String(page), itemName, String(qty), "-5"))
+      .setLabel("-5")
       .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMin),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("shop_qty", ownerId, String(page), itemName, String(qty), "-1"))
+      .setLabel("-1")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMin),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("shop_buy", ownerId, String(page), itemName, String(qty)))
+      .setLabel(maxQty < 1 ? "金幣不夠" : `確認購買 x${qty}（${cost * qty} 金幣）`)
+      .setEmoji("🛍️")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(qty > maxQty || maxQty < 1),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("shop_qty", ownerId, String(page), itemName, String(qty), "1"))
+      .setLabel("+1")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMax),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("shop_qty", ownerId, String(page), itemName, String(qty), "5"))
+      .setLabel("+5")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atMax)
   );
 }
 
-// 賣完之後查一次還剩幾個賣得動，有剩才顯示「全部賣掉」按鈕；按鈕上直接標總價，不用點下去才知道
-async function buildSellReply(
-  userInternalId: string,
+async function pushQuantityRow(
+  view: ShopView,
+  discordUserId: string,
   ownerId: string,
-  item: Item,
-  sellPrice: number,
-  goldAfter: number
+  page: number,
+  itemName: string,
+  qty: number
 ) {
-  const inventory = await ItemService.getInventory(userInternalId);
-  const remaining = inventory.find((row) => row.itemId === item.id)?.quantity ?? 0;
+  const item = await ItemService.findItemByName(itemName);
+  if (!item) return;
 
-  const embed = new EmbedBuilder()
-    .setColor("#95a5a6" as ColorResolvable)
-    .setDescription(`💰 賣掉「${item.name}」，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`);
-
-  if (remaining <= 0) return { embeds: [embed], components: [] };
-
-  const totalPrice = ItemService.getSellPricePerUnit(item) * remaining;
-  return { embeds: [embed], components: [buildSellAllRow(ownerId, item.name, remaining, totalPrice)] };
+  const user = await RPGService.findUserByDiscordId(discordUserId);
+  const maxQty = user ? computeMaxBuyable(user.gold, item.cost) : 0;
+  const clampedQty = Math.min(Math.max(1, qty), Math.max(maxQty, 1));
+  view.components.push(buildBuyQuantityRow(ownerId, page, item.name, clampedQty, item.cost, maxQty));
 }
 
-export async function handleShopSell(interaction: ChatInputCommandInteraction) {
-  try {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    const user = await RPGService.findUserByDiscordId(interaction.user.id);
-    if (!user) {
-      return interaction.editReply(
-        "你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！"
-      );
-    }
-
-    const itemName = interaction.options.getString("item", true);
-    const sellAll = interaction.options.getBoolean("all") ?? false;
-
-    if (sellAll) {
-      const { item, sellPrice, amount, goldAfter } = await ItemService.sellAllOfItem(user.id, itemName);
-      const embed = new EmbedBuilder()
-        .setColor("#95a5a6" as ColorResolvable)
-        .setDescription(`💰 全部賣掉「${item.name}」x${amount}，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`);
-      return interaction.editReply({ embeds: [embed] });
-    }
-
-    const { item, sellPrice, goldAfter } = await ItemService.sellItem(user.id, itemName);
-    const payload = await buildSellReply(user.id, interaction.user.id, item, sellPrice, goldAfter);
-    return interaction.editReply(payload);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return interaction.editReply(`販賣失敗：${message}`);
-  }
+export async function handleShopCommand(interaction: ChatInputCommandInteraction) {
+  const view = await buildShopView(interaction.user.id, interaction.user.id, 0);
+  return interaction.reply(view);
 }
 
-// interactionCreate.ts 會把 "shop_sell_all:*" 的按鈕點擊導到這裡；賣掉「賣得動的全部」，裝備中的不會被賣
-export async function handleShopSellAllButton(interaction: ButtonInteraction) {
+export async function handleShopPageButton(interaction: ButtonInteraction) {
   const { ownerId, args } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
+  const page = parseInt(args[0], 10);
 
-  const itemName = args[0];
+  await interaction.deferUpdate();
+  const view = await buildShopView(interaction.user.id, ownerId, page);
+  await interaction.editReply(view);
+}
+
+export async function handleShopSelect(interaction: StringSelectMenuInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+  const page = parseInt(args[0], 10);
+  const itemName = interaction.values[0];
+
+  await interaction.deferUpdate();
+  const view = await buildShopView(interaction.user.id, ownerId, page, itemName);
+  await pushQuantityRow(view, interaction.user.id, ownerId, page, itemName, 1);
+  await interaction.editReply(view);
+}
+
+// interactionCreate.ts 會把 "shop_qty:*" 的按鈕點擊導到這裡；只調整數量、還沒真的購買
+export async function handleShopQtyButton(interaction: ButtonInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+  const [pageStr, itemName, currentQtyStr, deltaStr] = args;
+  const page = parseInt(pageStr, 10);
+  const nextQty = parseInt(currentQtyStr, 10) + parseInt(deltaStr, 10);
+
+  await interaction.deferUpdate();
+  const view = await buildShopView(interaction.user.id, ownerId, page, itemName);
+  await pushQuantityRow(view, interaction.user.id, ownerId, page, itemName, nextQty);
+  await interaction.editReply(view);
+}
+
+// interactionCreate.ts 會把 "shop_buy:*" 的按鈕點擊導到這裡，真的執行購買
+export async function handleShopBuyButton(interaction: ButtonInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+  const [pageStr, itemName, qtyStr] = args;
+  const page = parseInt(pageStr, 10);
+  const qty = Math.max(1, parseInt(qtyStr, 10) || 1);
 
   await interaction.deferUpdate();
   try {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
-    if (!user) throw new Error("找不到你的角色資料");
+    if (!user) throw new Error("你尚未開始 RPG 冒險，請先使用 /rpg start 命令開始遊戲！");
 
-    const { sellPrice, amount, goldAfter } = await ItemService.sellAllOfItem(user.id, itemName);
+    const { item, quantity, boughtAmount, totalCost, autoEquippedSlot } = await ItemService.buyItem(
+      user.id,
+      itemName,
+      qty
+    );
+    const equipNote = autoEquippedSlot ? `，並自動裝備為${SLOT_GROUP_LABELS[autoEquippedSlot]}！` : "";
 
-    const embed = new EmbedBuilder()
-      .setColor("#95a5a6" as ColorResolvable)
-      .setDescription(`💰 全部賣掉「${itemName}」x${amount}，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`);
-
-    await interaction.editReply({ embeds: [embed], components: [] });
+    // 買完回到純瀏覽狀態（跟 inventory 的快捷操作一致），確認訊息只有買的人自己看得到
+    const view = await buildShopView(interaction.user.id, ownerId, page);
+    await interaction.editReply(view);
+    await interaction.followUp({
+      content: `✅ 花費 ${totalCost} 金幣購買了「${item.name}」x${boughtAmount}！目前擁有 ${quantity} 個${equipNote}`,
+      flags: MessageFlags.Ephemeral,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
+    await interaction.followUp({ content: `購買失敗：${message}`, flags: MessageFlags.Ephemeral });
   }
-}
-
-export async function shopBuyAutocomplete(interaction: AutocompleteInteraction) {
-  const focused = interaction.options.getFocused().trim();
-  const items = await ItemService.getShopCatalog();
-  const filtered = items.filter((item) => item.name.includes(focused)).slice(0, 25);
-  return interaction.respond(
-    filtered.map((item) => {
-      const effects = [formatEffectValue(item.effectType, item.effectValue)];
-      if (item.effectType2 && item.effectValue2 != null) {
-        effects.push(formatEffectValue(item.effectType2, item.effectValue2));
-      }
-      return {
-        name: `${item.name}（${item.cost} 金幣・${effects.join("、")}）`.slice(0, 100),
-        value: item.name,
-      };
-    })
-  );
-}
-
-export async function shopSellAutocomplete(interaction: AutocompleteInteraction) {
-  const focused = interaction.options.getFocused().trim();
-  const user = await RPGService.findUserByDiscordId(interaction.user.id);
-  if (!user) return interaction.respond([]);
-
-  const inventory = await ItemService.getInventory(user.id);
-  const filtered = inventory
-    .filter((row) => row.item.name.includes(focused))
-    .slice(0, 25);
-  return interaction.respond(
-    filtered.map((row) => {
-      const unitPrice = ItemService.getSellPricePerUnit(row.item);
-      const priceNote =
-        row.quantity > 1
-          ? `賣 1 隻 ${unitPrice} 金幣・全賣 ${unitPrice * row.quantity} 金幣`
-          : `賣 ${unitPrice} 金幣`;
-      return {
-        name: `${row.item.name} x${row.quantity}（${priceNote}）`,
-        value: row.item.name,
-      };
-    })
-  );
 }

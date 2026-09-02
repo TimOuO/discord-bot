@@ -21,7 +21,7 @@ function buildGatherRetryButton(ownerId: string): ButtonBuilder {
     .setStyle(ButtonStyle.Primary);
 }
 
-// 「再採一次」放最前面、按鈕上直接標賣出金額，不用點下去才知道賣了多少錢（跟 fish/shop sell 同樣的道理）
+// 「再採一次」放最前面、按鈕上直接標賣出金額，不用點下去才知道賣了多少錢（跟 fish/inventory 的全部賣掉按鈕同樣的道理）
 function buildGatherActionRow(
   ownerId: string,
   itemName: string,

@@ -13,7 +13,9 @@ import {
   handleInventoryEquipButton,
   handleInventoryEquipSlotButton,
   handleInventoryUseButton,
+  handleInventoryUseQtyButton,
   handleInventorySellButton,
+  handleInventorySellQtyButton,
 } from "./inventory";
 import { handleBattleCommand, handleBattleRematchButton } from "./battle";
 import { handleDungeonCommand, handleDungeonRetryButton } from "./dungeon";
@@ -29,18 +31,12 @@ import {
 } from "./craft";
 import { handleUseCommand, useAutocomplete } from "./items";
 import {
-  handleShopBuy,
-  handleShopSell,
-  handleShopSellAllButton,
-  shopBuyAutocomplete,
-  shopSellAutocomplete,
+  handleShopCommand,
+  handleShopPageButton,
+  handleShopSelect,
+  handleShopQtyButton,
+  handleShopBuyButton,
 } from "./shop";
-import {
-  handleShopListCommand,
-  handleShopListPageButton,
-  handleShopListSelect,
-  handleShopListBuyButton,
-} from "./shopList";
 
 // 按鈕/選單 handler、buildDailyRewardEmbed 給 interactionCreate.ts、voiceStateUpdate.ts 用
 export {
@@ -52,16 +48,18 @@ export {
   handleGatherRetryButton,
   handleGatherSellButton,
   handleGatherSellAllButton,
-  handleShopSellAllButton,
   handleInventoryPageButton,
   handleInventorySelect,
   handleInventoryEquipButton,
   handleInventoryEquipSlotButton,
   handleInventoryUseButton,
+  handleInventoryUseQtyButton,
   handleInventorySellButton,
-  handleShopListPageButton,
-  handleShopListSelect,
-  handleShopListBuyButton,
+  handleInventorySellQtyButton,
+  handleShopPageButton,
+  handleShopSelect,
+  handleShopQtyButton,
+  handleShopBuyButton,
   handleCraftListPageButton,
   handleCraftListSelect,
   handleCraftMakeButton,
@@ -122,61 +120,20 @@ export default {
             .setRequired(true)
             .setAutocomplete(true)
         )
+        .addIntegerOption((option) =>
+          option
+            .setName("amount")
+            .setDescription("最多想用幾個（實際會封頂在回滿血量所需的數量，不會浪費）")
+            .setRequired(false)
+            .setMinValue(1)
+        )
     )
-    .addSubcommandGroup((group) =>
-      group
-        .setName("shop")
-        .setDescription("商店：查看、購買、販賣道具")
-        .addSubcommand((subcommand) =>
-          subcommand.setName("list").setDescription("查看商店所有道具")
-        )
-        .addSubcommand((subcommand) =>
-          subcommand
-            .setName("buy")
-            .setDescription("購買道具")
-            .addStringOption((option) =>
-              option
-                .setName("item")
-                .setDescription("要購買的道具")
-                .setRequired(true)
-                .setAutocomplete(true)
-            )
-        )
-        .addSubcommand((subcommand) =>
-          subcommand
-            .setName("sell")
-            .setDescription("販賣道具（商店買的原價 50%，釣到的魚全額賣出）")
-            .addStringOption((option) =>
-              option
-                .setName("item")
-                .setDescription("要販賣的道具")
-                .setRequired(true)
-                .setAutocomplete(true)
-            )
-            .addBooleanOption((option) =>
-              option
-                .setName("all")
-                .setDescription("一次全部賣掉，不用先賣 1 個再點按鈕")
-                .setRequired(false)
-            )
-        )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("shop").setDescription("商店：瀏覽、購買道具（用選單+按鈕操作，可選數量）")
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
-    const group = interaction.options.getSubcommandGroup(false);
     const subcommand = interaction.options.getSubcommand();
-
-    if (group === "shop") {
-      switch (subcommand) {
-        case "list":
-          return handleShopListCommand(interaction);
-        case "buy":
-          return handleShopBuy(interaction);
-        case "sell":
-          return handleShopSell(interaction);
-      }
-      return;
-    }
 
     switch (subcommand) {
       case "start":
@@ -201,6 +158,8 @@ export default {
         return handleCraftCommand(interaction);
       case "use":
         return handleUseCommand(interaction);
+      case "shop":
+        return handleShopCommand(interaction);
       default:
         return interaction.reply({
           content: "未知的子指令",
@@ -210,14 +169,7 @@ export default {
   },
 
   async autocomplete(interaction: AutocompleteInteraction) {
-    const group = interaction.options.getSubcommandGroup(false);
     const subcommand = interaction.options.getSubcommand();
-
-    if (group === "shop") {
-      if (subcommand === "buy") return shopBuyAutocomplete(interaction);
-      if (subcommand === "sell") return shopSellAutocomplete(interaction);
-      return interaction.respond([]);
-    }
 
     if (subcommand === "use") return useAutocomplete(interaction);
     if (subcommand === "craft") return craftAutocomplete(interaction);

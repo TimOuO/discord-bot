@@ -18,13 +18,20 @@ export async function handleUseCommand(interaction: ChatInputCommandInteraction)
     }
 
     const itemName = interaction.options.getString("item", true);
-    const { item, healedAmount, newHealth, maxHealth } = await ItemService.useItem(
+    const amount = interaction.options.getInteger("amount") ?? 1;
+    const { item, healedAmount, newHealth, maxHealth, usedAmount, requestedAmount } = await ItemService.useItem(
       user.id,
-      itemName
+      itemName,
+      amount
     );
 
+    const wasteNote =
+      usedAmount < requestedAmount
+        ? `（已回滿生命值，只用了 ${usedAmount} 個，其餘 ${requestedAmount - usedAmount} 個沒有浪費）`
+        : "";
+
     return interaction.editReply(
-      `🧪 使用了「${item.name}」，恢復了 ${healedAmount} 點生命值！目前生命值：${newHealth}/${maxHealth}`
+      `🧪 使用了「${item.name}」x${usedAmount}${wasteNote}，恢復了 ${healedAmount} 點生命值！目前生命值：${newHealth}/${maxHealth}`
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -45,7 +52,7 @@ export async function useAutocomplete(interaction: AutocompleteInteraction) {
 
   return interaction.respond(
     filtered.map((row) => ({
-      name: `${row.item.name} x${row.quantity}`,
+      name: `${row.item.name}（庫存 ${row.quantity} 個，預設使用 1 個，可用 amount 選項調整）`.slice(0, 100),
       value: row.item.name,
     }))
   );

@@ -21,7 +21,7 @@ function buildFishRetryButton(ownerId: string): ButtonBuilder {
     .setStyle(ButtonStyle.Primary);
 }
 
-// 「再釣一次」放最前面、按鈕上直接標賣出金額，不用點下去才知道賣了多少錢（跟 shop sell 的「全部賣掉」按鈕同樣的道理）
+// 「再釣一次」放最前面、按鈕上直接標賣出金額，不用點下去才知道賣了多少錢（跟 inventory 的「全部賣掉」按鈕同樣的道理）
 function buildFishActionRow(
   ownerId: string,
   itemName: string,
