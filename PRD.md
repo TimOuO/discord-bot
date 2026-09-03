@@ -244,6 +244,16 @@ npm run deploy || echo "指令註冊失敗，下次部署會自動重試"   # �
 - lockfile 問題：不是「lockfile 過期」，是 `.gitignore` 直接排除了 `package-lock.json`，而版控裡躺的是 2025-06 就沒在用的 `pnpm-lock.yaml`（`@google/generative-ai`/lavalink/discord-player 都在裡面）。正確修法是把 `package-lock.json` 從 `.gitignore` 移除並 commit、砍掉 `pnpm-lock.yaml`，不是單純重跑一次 install。
 - `package.json` 的 `prepare` 拆分：VM 上 PM2 實際跑的是編譯後的 `dist/index.js`，但 `deploy.sh` 完全沒有獨立的 build 步驟——build 目前是靠 `npm install` 觸發 `prepare` 產生的。若照原始建議直接拆掉 `prepare` 改成 `postinstall: prisma generate`，`deploy.sh` 會繼續 `pm2 restart` 舊的 `dist/`，而且部署通知還是會顯示成功，是一次無聲的生產環境退化。要做的話必須先在 `deploy.sh` 補上明確的 `npm run build` 並驗證過，才能動 `package.json`。
 
+## 14. lockfile 修正 + 部署加測試 gate + build 流程重整（2026-09-04）
+
+**背景**：接續第 13 節「另一個 AI 給的 7 點健檢建議」，這次處理剩下的 3 點（#2 lockfile、#4 部署 gate、#5 `prepare` 拆分）。這三點彼此有相依順序，必須照特定順序做，原始建議的做法（尤其 #5）如果照抄順序會直接弄壞 production，已在第 13 節記錄過查證結果。
+
+**#2 lockfile 修正**：`.gitignore` 原本排除 `package-lock.json`，但版控裡躺著一份 2025-06 就沒在用的 `pnpm-lock.yaml`（`@google/generative-ai`/lavalink/discord-player 這些早就拔掉的依賴都還在裡面）。改法：把 `package-lock.json` 從 `.gitignore` 移除並 commit 進版控，刪掉 `pnpm-lock.yaml`。`npm ci --dry-run` 驗證過現有的 `package-lock.json` 跟 `package.json` 是同步的。
+
+**#4 部署加測試 gate**：`deploy.sh`（不受版控，只存在 VM 上）在 `npm install` 之後、`migrate`/`seed`/`pm2 restart` 之前，加了一段 `npm run test:typecheck && npm test && npm run build` 的檢查。**沒過的話用 `git reset --hard` 把 repo 還原回舊 commit**（不是只中止而已）——這樣下一輪 cron（5 分鐘一次）還是會偵測到「有新版本」而重新嘗試，不會因為 git 已經 pull 過就永遠卡住、不再重試同一個壞掉的 commit；失敗會 DM 通知說明已經還原。在 VM 上實測過三個指令：typecheck ~3 秒、test ~30 秒、build ~13 秒，1GB RAM 的機器完全撐得住，不到 1 分鐘就能跑完整個 gate。
+
+**#5 build 流程重整**：原本 `prepare: npm run build`（含完整 `tsc` 編譯）掛在 `npm install` 上，本機開發（`tsx` 直接跑 TS 原始碼，不需要 `dist/`）每次 install 都要多等一次不需要的編譯。**但直接拆掉會讓 VM 沒有任何步驟會 build**——PM2 實際跑的是 `dist/index.js`，之前完全是靠 `prepare` 順帶產生的。正確順序：**先**確認 #4 的 gate（內含明確的 `npm run build`）已經上線生效，**再**把 `package.json` 的 `prepare` 改成 `postinstall: prisma generate`（本機開發只需要 Prisma client，不需要完整編譯）。已本機驗證：清掉 `src/generated/prisma` 重跑 `npm install`，`postinstall` 有正確重新產生；`tsc`/測試/`npm run build` 都正常。
+
 ## 目前進度對照（2026-08-29 更新）
 
 | 里程碑 | 狀態 | 備註 |
