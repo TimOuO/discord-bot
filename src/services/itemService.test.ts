@@ -23,6 +23,27 @@ describe("ItemService.buyItem", () => {
     await expect(ItemService.buyItem(user.id, item.name)).rejects.toThrow("金幣不夠");
   });
 
+  it("金幣只夠買一次時，兩個併發購買只有一個會成功（競態測試）", async () => {
+    const { user } = await createTestUser({ gold: 100 });
+    const item = await createTestItem({ type: "potion", cost: 60, effectType: "heal" });
+
+    const results = await Promise.allSettled([
+      ItemService.buyItem(user.id, item.name),
+      ItemService.buyItem(user.id, item.name),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    // 金幣只會被扣一次，不會被扣成負數
+    const updatedUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(updatedUser.gold).toBe(40);
+    const inventory = await ItemService.getInventory(user.id);
+    expect(inventory.find((row) => row.itemId === item.id)?.quantity).toBe(1);
+  });
+
   it("魚類道具不能用 buyItem 購買", async () => {
     const { user } = await createTestUser({ gold: 1000 });
     const fish = await createTestItem({
@@ -100,6 +121,28 @@ describe("ItemService.sellItem", () => {
     await ItemService.buyItem(user.id, weapon.name); // 會自動裝備（空欄位）
 
     await expect(ItemService.sellItem(user.id, weapon.name)).rejects.toThrow("目前正在裝備中");
+  });
+
+  it("只有 1 個庫存時，兩個併發賣出只有一個會成功（競態測試）", async () => {
+    const { user } = await createTestUser({ gold: 100 });
+    const item = await createTestItem({ type: "potion", cost: 100, effectType: "heal" });
+    await ItemService.buyItem(user.id, item.name); // 買完金幣剩 0
+
+    const results = await Promise.allSettled([
+      ItemService.sellItem(user.id, item.name),
+      ItemService.sellItem(user.id, item.name),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    // 只會賣掉一份，不會兩邊都拿到錢（金幣不會被灌成兩倍）
+    const updatedUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(updatedUser.gold).toBe(50);
+    const inventory = await ItemService.getInventory(user.id);
+    expect(inventory.find((row) => row.itemId === item.id)).toBeUndefined();
   });
 
   it("可以一次指定數量賣出多個，金額跟庫存都照數量計算", async () => {

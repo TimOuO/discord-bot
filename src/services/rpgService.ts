@@ -442,14 +442,16 @@ export class RPGService {
       throw new Error("使用者不存在，請先使用 /rpg start 指令開始遊戲");
     }
 
-    if (
-      user.lastBattle &&
-      new Date().getTime() - new Date(user.lastBattle).getTime() < BATTLE_COOLDOWN_MS
-    ) {
+    // 先搶冷卻再算戰鬥：where 直接帶「還沒打過或已經過冷卻」的條件，count 是 0 就代表被搶輸了，
+    // 不會有兩個併發請求都通過「讀出來的 lastBattle 還沒過期」檢查、都跑完戰鬥的競態
+    const battleCutoff = new Date(Date.now() - BATTLE_COOLDOWN_MS);
+    const claimedBattle = await prisma.user.updateMany({
+      where: { id: user.id, OR: [{ lastBattle: null }, { lastBattle: { lt: battleCutoff } }] },
+      data: { lastBattle: new Date() },
+    });
+    if (claimedBattle.count === 0) {
       const remainingTime = Math.ceil(
-        (BATTLE_COOLDOWN_MS -
-          (new Date().getTime() - new Date(user.lastBattle).getTime())) /
-          1000
+        (BATTLE_COOLDOWN_MS - (Date.now() - new Date(user.lastBattle!).getTime())) / 1000
       );
       throw new Error(`戰鬥冷卻中，請等待 ${remainingTime} 秒後再試`);
     }
@@ -504,7 +506,6 @@ export class RPGService {
         data: {
           xp: { increment: xpGained },
           gold: { increment: goldGained },
-          lastBattle: new Date(),
           ...(levelsGained > 0
             ? {
                 level: { increment: levelsGained },
@@ -547,7 +548,6 @@ export class RPGService {
               }
             : {}),
           health: lossHealthFloor(newMaxHealthOnLoss, user.level),
-          lastBattle: new Date(),
         },
       });
     }
@@ -645,14 +645,18 @@ export class RPGService {
     const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
     if (!user) return { status: "not_started" };
 
-    if (user.lastDungeon) {
-      const elapsed = Date.now() - new Date(user.lastDungeon).getTime();
-      if (elapsed < DUNGEON_COOLDOWN_MS) {
-        return {
-          status: "cooldown",
-          remainingSeconds: Math.ceil((DUNGEON_COOLDOWN_MS - elapsed) / 1000),
-        };
-      }
+    // 先搶冷卻再跑地下城：同樣的道理，避免「再次挑戰」連點兩下繞過 5 分鐘冷卻
+    const dungeonCutoff = new Date(Date.now() - DUNGEON_COOLDOWN_MS);
+    const claimedDungeon = await prisma.user.updateMany({
+      where: { id: user.id, OR: [{ lastDungeon: null }, { lastDungeon: { lt: dungeonCutoff } }] },
+      data: { lastDungeon: new Date() },
+    });
+    if (claimedDungeon.count === 0) {
+      const elapsed = Date.now() - new Date(user.lastDungeon!).getTime();
+      return {
+        status: "cooldown",
+        remainingSeconds: Math.ceil((DUNGEON_COOLDOWN_MS - elapsed) / 1000),
+      };
     }
 
     const effectiveStats = await ItemService.getEffectiveStats(user.id, {
@@ -751,7 +755,6 @@ export class RPGService {
       data: {
         xp: { increment: totalXpGained },
         gold: { increment: totalGoldGained },
-        lastDungeon: new Date(),
         ...(levelsGained > 0
           ? {
               level: { increment: levelsGained },
@@ -784,18 +787,22 @@ export class RPGService {
     const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
     if (!user) return { status: "not_started" };
 
-    if (user.lastFish) {
-      const elapsed = Date.now() - new Date(user.lastFish).getTime();
-      if (elapsed < FISH_COOLDOWN_MS) {
-        return {
-          status: "cooldown",
-          remainingSeconds: Math.ceil((FISH_COOLDOWN_MS - elapsed) / 1000),
-        };
-      }
+    // 先搶冷卻再抽釣魚結果，避免「再釣一次」連點兩下繞過 60 秒冷卻
+    const fishCutoff = new Date(Date.now() - FISH_COOLDOWN_MS);
+    const claimedFish = await prisma.user.updateMany({
+      where: { id: user.id, OR: [{ lastFish: null }, { lastFish: { lt: fishCutoff } }] },
+      data: { lastFish: new Date() },
+    });
+    if (claimedFish.count === 0) {
+      const elapsed = Date.now() - new Date(user.lastFish!).getTime();
+      return {
+        status: "cooldown",
+        remainingSeconds: Math.ceil((FISH_COOLDOWN_MS - elapsed) / 1000),
+      };
     }
 
     if (Math.random() < EMPTY_CATCH_CHANCE) {
-      await prisma.user.update({ where: { id: user.id }, data: { lastFish: new Date() } });
+      // lastFish 已經在上面搶冷卻時寫過了，不用再更新一次
       return { status: "empty", message: EMPTY_CATCH_MESSAGES[randomInt(0, EMPTY_CATCH_MESSAGES.length)] };
     }
 
@@ -815,7 +822,7 @@ export class RPGService {
     const [, inventory] = await prisma.$transaction([
       prisma.user.update({
         where: { id: user.id },
-        data: { lastFish: new Date(), xp: { increment: xpGained } },
+        data: { xp: { increment: xpGained } },
       }),
       prisma.inventory.upsert({
         where: { userId_itemId: { userId: user.id, itemId: item.id } },
@@ -831,18 +838,22 @@ export class RPGService {
     const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
     if (!user) return { status: "not_started" };
 
-    if (user.lastGather) {
-      const elapsed = Date.now() - new Date(user.lastGather).getTime();
-      if (elapsed < GATHER_COOLDOWN_MS) {
-        return {
-          status: "cooldown",
-          remainingSeconds: Math.ceil((GATHER_COOLDOWN_MS - elapsed) / 1000),
-        };
-      }
+    // 先搶冷卻再抽採集結果，避免「再採一次」連點兩下繞過 60 秒冷卻
+    const gatherCutoff = new Date(Date.now() - GATHER_COOLDOWN_MS);
+    const claimedGather = await prisma.user.updateMany({
+      where: { id: user.id, OR: [{ lastGather: null }, { lastGather: { lt: gatherCutoff } }] },
+      data: { lastGather: new Date() },
+    });
+    if (claimedGather.count === 0) {
+      const elapsed = Date.now() - new Date(user.lastGather!).getTime();
+      return {
+        status: "cooldown",
+        remainingSeconds: Math.ceil((GATHER_COOLDOWN_MS - elapsed) / 1000),
+      };
     }
 
     if (Math.random() < GATHER_EMPTY_CHANCE) {
-      await prisma.user.update({ where: { id: user.id }, data: { lastGather: new Date() } });
+      // lastGather 已經在上面搶冷卻時寫過了，不用再更新一次
       return {
         status: "empty",
         message: GATHER_EMPTY_MESSAGES[randomInt(0, GATHER_EMPTY_MESSAGES.length)],
@@ -865,7 +876,7 @@ export class RPGService {
     const [, inventory] = await prisma.$transaction([
       prisma.user.update({
         where: { id: user.id },
-        data: { lastGather: new Date(), xp: { increment: xpGained } },
+        data: { xp: { increment: xpGained } },
       }),
       prisma.inventory.upsert({
         where: { userId_itemId: { userId: user.id, itemId: item.id } },
@@ -887,17 +898,21 @@ export class RPGService {
     const now = new Date();
     const lastDaily = user.lastDaily ? new Date(user.lastDaily) : null;
     const todayString = getLocalDateString(now);
+    // 今天台北時間 00:00 的實際時間點，給下面的 conditional update 當「還沒領過今天」的判斷邊界用
+    const todayStart = new Date(getNextResetTime(now).getTime() - 24 * 60 * 60 * 1000);
+
+    const buildAlreadyClaimedResult = (): DailyClaimResult => {
+      const tomorrow = getNextResetTime(now);
+      const remainingTime = tomorrow.getTime() - now.getTime();
+      const remainingHours = Math.floor(remainingTime / (60 * 60 * 1000));
+      const remainingMinutes = Math.floor((remainingTime % (60 * 60 * 1000)) / (60 * 1000));
+      return { status: "already_claimed", remainingHours, remainingMinutes };
+    };
 
     if (lastDaily) {
       const lastDailyString = getLocalDateString(lastDaily);
       if (lastDailyString === todayString) {
-        const tomorrow = getNextResetTime(now);
-        const remainingTime = tomorrow.getTime() - now.getTime();
-        const remainingHours = Math.floor(remainingTime / (60 * 60 * 1000));
-        const remainingMinutes = Math.floor(
-          (remainingTime % (60 * 60 * 1000)) / (60 * 1000)
-        );
-        return { status: "already_claimed", remainingHours, remainingMinutes };
+        return buildAlreadyClaimedResult();
       }
     }
 
@@ -944,8 +959,11 @@ export class RPGService {
 
     const finalGoldReward = goldReward + streakBonus;
 
-    const updatedUser = await prisma.user.update({
-      where: { id: user.id },
+    // 「還沒領過今天」的判斷跟寫入包在同一個 conditional update 裡：語音自動簽到跟手動 /rpg daily
+    // 幾乎同時觸發時，只有一邊的 where 能命中（另一邊會因為 lastDaily 已經被搶先改成今天而落空），
+    // 不會出現兩邊都通過前面的預先檢查、都各發一次獎勵的競態
+    const claimedDaily = await prisma.user.updateMany({
+      where: { id: user.id, OR: [{ lastDaily: null }, { lastDaily: { lt: todayStart } }] },
       data: {
         gold: { increment: finalGoldReward },
         xp: { increment: xpReward },
@@ -958,6 +976,12 @@ export class RPGService {
         lastStreakDate: currentDate,
       },
     });
+
+    if (claimedDaily.count === 0) {
+      return buildAlreadyClaimedResult();
+    }
+
+    const updatedUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
 
     return {
       status: "claimed",

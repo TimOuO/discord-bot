@@ -240,24 +240,27 @@ export class ItemService {
     }
 
     const totalCost = item.cost * amount;
-    const user = await prisma.user.findUniqueOrThrow({ where: { id: userInternalId } });
-    if (user.gold < totalCost) {
-      throw new Error(
-        `金幣不夠，「${item.name}」x${amount} 要 ${totalCost} 金幣，你只有 ${user.gold} 金幣`
-      );
-    }
 
-    const [, inventory] = await prisma.$transaction([
-      prisma.user.update({
-        where: { id: userInternalId },
+    // 金幣夠不夠的判斷跟扣款包在同一個 conditional update 裡（where 直接帶 gold >= totalCost），
+    // 不會有「查完錢夠、扣款前錢被別的操作花掉」的競態；count 是 0 就代表搶輸了，重新查一次目前金幣來報錯
+    const inventory = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.user.updateMany({
+        where: { id: userInternalId, gold: { gte: totalCost } },
         data: { gold: { decrement: totalCost } },
-      }),
-      prisma.inventory.upsert({
+      });
+      if (claimed.count === 0) {
+        const user = await tx.user.findUniqueOrThrow({ where: { id: userInternalId } });
+        throw new Error(
+          `金幣不夠，「${item.name}」x${amount} 要 ${totalCost} 金幣，你只有 ${user.gold} 金幣`
+        );
+      }
+
+      return tx.inventory.upsert({
         where: { userId_itemId: { userId: userInternalId, itemId: item.id } },
         create: { userId: userInternalId, itemId: item.id, quantity: amount },
         update: { quantity: { increment: amount } },
-      }),
-    ]);
+      });
+    });
 
     const autoEquipped = await this.maybeAutoEquip(userInternalId, item);
     return { item, quantity: inventory.quantity, boughtAmount: amount, totalCost, autoEquippedSlot: autoEquipped?.slot ?? null };
@@ -357,18 +360,30 @@ export class ItemService {
 
     const sellPrice = this.getSellPricePerUnit(item) * amount;
 
-    const [updatedUser] = await prisma.$transaction([
-      prisma.user.update({
+    // 賣出的扣減也包成 conditional update：where 直接要求「剩下的量還是要 >= 裝備中的數量」，
+    // 不會有「查完可賣數量、真的扣之前庫存已經被別的操作動過」的競態（例如兩個賣出請求同時打進來）
+    const equippedCount = await prisma.equippedItem.count({
+      where: { userId: userInternalId, itemId: item.id },
+    });
+
+    const [updatedUser] = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.inventory.updateMany({
+        where: { id: inventory.id, quantity: { gte: amount + equippedCount } },
+        data: { quantity: { decrement: amount } },
+      });
+      if (claimed.count === 0) {
+        throw new Error(`「${item.name}」的庫存在賣出前被其他操作改變了，請重新查詢後再試`);
+      }
+
+      // 扣完剛好歸零的話刪掉這筆庫存紀錄，不留 quantity=0 的殘影（背包列表會顯示出一筆「x0」的道具）
+      await tx.inventory.deleteMany({ where: { id: inventory.id, quantity: { lte: 0 } } });
+
+      const user = await tx.user.update({
         where: { id: userInternalId },
         data: { gold: { increment: sellPrice } },
-      }),
-      inventory.quantity - amount <= 0
-        ? prisma.inventory.delete({ where: { id: inventory.id } })
-        : prisma.inventory.update({
-            where: { id: inventory.id },
-            data: { quantity: { decrement: amount } },
-          }),
-    ]);
+      });
+      return [user];
+    });
 
     return { item, sellPrice, amount, goldAfter: updatedUser.gold };
   }

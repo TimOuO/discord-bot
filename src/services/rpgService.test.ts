@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { RPGService, xpThresholdForLevel } from "./rpgService";
+import type { DailyClaimResult } from "./rpgService";
 import { ItemService } from "./itemService";
 import { createTestUser, createTestItem } from "../../test/helpers";
 import prisma from "./dbService";
@@ -231,6 +232,21 @@ describe("RPGService.battle", () => {
     await RPGService.battle(discordUserId);
 
     await expect(RPGService.battle(discordUserId)).rejects.toThrow("冷卻中");
+  });
+
+  it("兩個請求幾乎同時發起時，冷卻只會讓其中一個真的打成，不會兩個都繞過去（競態測試）", async () => {
+    const { discordUserId } = await createTestUser({ attack: 9999, defense: 9999 });
+
+    const results = await Promise.allSettled([
+      RPGService.battle(discordUserId),
+      RPGService.battle(discordUserId),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/冷卻中/);
   });
 
   it("打贏後回血是照有效上限的比例（15%），不是舊版固定 +10", async () => {
@@ -665,6 +681,25 @@ describe("RPGService.claimDaily", () => {
     const second = await RPGService.claimDaily(discordUserId);
 
     expect(second.status).toBe("already_claimed");
+  });
+
+  it("手動簽到跟語音自動簽到幾乎同時觸發時，只有一邊真的領到獎勵（競態測試）", async () => {
+    const { discordUserId, user } = await createTestUser({ gold: 0 });
+
+    const results = await Promise.all([
+      RPGService.claimDaily(discordUserId),
+      RPGService.claimDaily(discordUserId),
+    ]);
+
+    const claimed = results.filter((r) => r.status === "claimed");
+    const alreadyClaimed = results.filter((r) => r.status === "already_claimed");
+    expect(claimed).toHaveLength(1);
+    expect(alreadyClaimed).toHaveLength(1);
+
+    // 獎勵只會被加一次，不會因為兩邊都算了一份獎勵而重複入帳
+    const updatedUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    const claimedResult = claimed[0] as Extract<DailyClaimResult, { status: "claimed" }>;
+    expect(updatedUser.gold).toBe(claimedResult.finalGoldReward);
   });
 
   it("有生命上限加成的裝備、血量已經高於基礎上限時，簽到補血不能倒扣血量", async () => {
