@@ -223,6 +223,27 @@ npm run deploy || echo "指令註冊失敗，下次部署會自動重試"   # �
 - `/rpg inventory` 的裝備欄「飾品」那行改成固定列出 3 格（含「（空）」佔位），並在標題加上「（N/3）」，不會再因為只裝了 1、2 件就讓人以為飾品欄只有那麼多格；同時補上原本沒有顯示的金幣欄位。
 - `/rpg shop` 的下拉選單選項加上效果數值（原本只有名稱+價格）。
 
+## 13. 修掉「查完再寫」的競態問題（2026-09-03）
+
+**背景**：另一個 AI 給了 7 點程式碼健檢建議，逐條查證後發現其中 2 點的診斷本身有誤（詳見下方「查證後修正」），這裡先處理已確認、風險/成本比最划算的兩點：冷卻/資源檢查的競態、每日備份失敗不重試。其餘 5 點（lockfile 版本、部署 gate、build 流程、README、CONTEXT.md 欄位數）留到之後的批次再做。
+
+**問題**：`battle`/`dungeon`/`fish`/`gather`/`claimDaily` 都是「先讀 `lastX` 判斷冷卻/是否已簽到、算完獎勵才寫回」，`buyItem`/`sellItemQuantity` 是「先讀金幣/庫存數量判斷夠不夠、算完才扣」。這中間有空窗——連點兩下「再戰一次」按鈕，兩個請求都可能讀到「還沒過冷卻」通過檢查，兩邊都真的打了一場；`buyItem` 同理可能被連點扣成負數金幣。
+
+**改法**：把「檢查」跟「寫入」包進同一個 conditional update，讓資料庫自己做原子判斷（兩種手法的取捨見 [ADR 0003](docs/adr/0003-cooldown-and-resource-races-use-conditional-updates.md)）：
+
+- `battle`/`dungeon`/`fish`/`gather`：**先搶冷卻**——一開始就用 `updateMany({ where: { id, OR: [{ lastX: null }, { lastX: { lt: cutoff } }] }, data: { lastX: now } })`，`count === 0` 就是搶輸、還在冷卻。代價是萬一搶到之後中途出錯，冷卻會被吃掉——但這幾個冷卻只有 30 秒～5 分鐘，可以接受。
+- `claimDaily`：**不能用搶的**（一次失敗就是損失一整天），改成把「今天還沒領」的條件（`lastDaily: null` 或 `lastDaily < 今天台北時間 00:00`）跟金幣/經驗/連續天數的寫入包在同一個 conditional update 裡，要嘛整包成立、要嘛整包不動；`count === 0` 就回傳「已經領過」。順帶解決了語音自動簽到跟手動 `/rpg daily` 幾乎同時觸發時可能兩邊都發獎勵的問題。
+- `buyItem`：`updateMany({ where: { id, gold: { gte: 總價 } }, data: { gold: { decrement: 總價 } } })`，`count === 0` 才回頭查目前金幣組錯誤訊息；整個包進 interactive transaction，跟背包寫入要嘛一起成功要嘛一起回滾。
+- `sellItemQuantity`：`updateMany({ where: { id, quantity: { gte: 數量 + 裝備中數量 } }, data: { quantity: { decrement: 數量 } } })`，扣完用 `deleteMany({ quantity: { lte: 0 } } })` 清掉歸零的庫存列，不留 `x0` 殘影。
+- 併發測試：`Promise.allSettled`/`Promise.all` 同時發兩個請求，斷言恰好一個成功、金幣/庫存不會被灌成兩倍或扣成負數。SQLite 單一寫入行程的特性讓這類測試可以穩定重現，不是機率性的 flaky test。
+
+**備份失敗不重試/不通知**：`lastBackupDate` 原本設在 `try` 外面，備份或私訊失敗當天就不會再嘗試，`catch` 也只有 `console.error`。改成只有成功才設 `lastBackupDate`（失敗的話下一輪 15 分鐘後再試），並加上「同一天只私訊通知一次失敗」的旗標避免連續失敗洗版；失敗時順便刪掉可能寫一半的殘留備份檔。
+
+**查證後修正**（原始建議裡診斷有誤或會造成破壞的部分，先記錄、還沒動手）：
+
+- lockfile 問題：不是「lockfile 過期」，是 `.gitignore` 直接排除了 `package-lock.json`，而版控裡躺的是 2025-06 就沒在用的 `pnpm-lock.yaml`（`@google/generative-ai`/lavalink/discord-player 都在裡面）。正確修法是把 `package-lock.json` 從 `.gitignore` 移除並 commit、砍掉 `pnpm-lock.yaml`，不是單純重跑一次 install。
+- `package.json` 的 `prepare` 拆分：VM 上 PM2 實際跑的是編譯後的 `dist/index.js`，但 `deploy.sh` 完全沒有獨立的 build 步驟——build 目前是靠 `npm install` 觸發 `prepare` 產生的。若照原始建議直接拆掉 `prepare` 改成 `postinstall: prisma generate`，`deploy.sh` 會繼續 `pm2 restart` 舊的 `dist/`，而且部署通知還是會顯示成功，是一次無聲的生產環境退化。要做的話必須先在 `deploy.sh` 補上明確的 `npm run build` 並驗證過，才能動 `package.json`。
+
 ## 目前進度對照（2026-08-29 更新）
 
 | 里程碑 | 狀態 | 備註 |
