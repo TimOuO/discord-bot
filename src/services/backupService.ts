@@ -30,14 +30,14 @@ function pruneOldBackups(): void {
   }
 }
 
-let lastBackupDate: string | null = null;
+let lastBackupDate: string | null = null; // 最後一次「成功」備份的日期，失敗不會設這個，下次輪詢會再試
+let lastFailureNotifiedDate: string | null = null; // 同一天只私訊一次失敗通知，避免每 15 分鐘連續失敗炸一整天的 DM
 
 async function runBackup(client: Client): Promise<void> {
   if (!config.backupDmUserId) return;
 
   const today = getLocalDateString(new Date());
   if (today === lastBackupDate) return;
-  lastBackupDate = today;
 
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
   const backupPath = path.join(BACKUP_DIR, `dev-${today}.db`);
@@ -56,8 +56,30 @@ async function runBackup(client: Client): Promise<void> {
       files: [new AttachmentBuilder(backupPath)],
     });
     console.log(`資料庫備份完成並已私訊送出: ${backupPath}`);
+    // 成功才記，失敗的話 lastBackupDate 維持舊值，下一輪（15 分鐘後）會再試一次
+    lastBackupDate = today;
   } catch (error) {
     console.error("資料庫備份失敗:", error);
+
+    // 備份/傳送半途失敗可能留下不完整的檔案，清掉避免之後被誤認成正常備份
+    try {
+      if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
+    } catch (cleanupError) {
+      console.error("清除失敗備份殘留檔案時發生錯誤:", cleanupError);
+    }
+
+    if (lastFailureNotifiedDate !== today) {
+      lastFailureNotifiedDate = today;
+      try {
+        const user = await client.users.fetch(config.backupDmUserId);
+        const message = error instanceof Error ? error.message : String(error);
+        await user.send(
+          `⚠️ 今天（${today}）的資料庫備份失敗了，之後每 15 分鐘會自動重試，成功之前不會再通知。錯誤：${message}`
+        );
+      } catch (notifyError) {
+        console.error("備份失敗通知也送不出去:", notifyError);
+      }
+    }
   }
 }
 
