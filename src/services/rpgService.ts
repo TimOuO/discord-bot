@@ -119,20 +119,23 @@ interface WeightedTier {
 }
 
 // 稀有度權重：數字越大越常見，總和不用是 100，pickFromWeightedTiers 會自己按比例抽
+// 2026-09-03 調整：legendary 原本 1%（100 次採集/釣魚平均見一次）玩家反映太難掉，調到 3%；
+// epic 原本比 legendary 常見 4 倍，若只調 legendary 兩者會差不到 1.4 倍、感覺不出階級落差，
+// 所以 epic 也一起從 4 調到 8，維持接近的相對落差（約 2.7 倍）
 const FISH_TABLE: WeightedTier[] = [
   { weight: 50, names: ["小魚乾", "泥鰍", "吳郭魚"] },
   { weight: 30, names: ["虹鱒", "鯖魚", "花枝"] },
   { weight: 15, names: ["銀鱗鮭", "龍虎斑", "紅魽"] },
-  { weight: 4, names: ["深海鮟鱇魚", "電鰻", "小鯊魚"] },
-  { weight: 1, names: ["黃金鯉魚", "傳說錦鯉", "神秘魚王"] },
+  { weight: 8, names: ["深海鮟鱇魚", "電鰻", "小鯊魚"] },
+  { weight: 3, names: ["黃金鯉魚", "傳說錦鯉", "神秘魚王"] },
 ];
 
 const GATHER_TABLE: WeightedTier[] = [
   { weight: 50, names: ["樹枝", "石頭", "麻繩"] },
   { weight: 30, names: ["鐵礦", "煤炭", "硬木"] },
   { weight: 15, names: ["銀礦", "玉石", "陳年木材"] },
-  { weight: 4, names: ["金礦", "藍水晶", "魔力碎片"] },
-  { weight: 1, names: ["紫水晶", "星隕石", "遠古符文石"] },
+  { weight: 8, names: ["金礦", "藍水晶", "魔力碎片"] },
+  { weight: 3, names: ["紫水晶", "星隕石", "遠古符文石"] },
 ];
 
 // 升到某等級需要的「累計」總經驗值，平方成長：等級越高，落差越大
