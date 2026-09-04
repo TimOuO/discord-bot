@@ -17,6 +17,7 @@
     "db:seed:gather": "tsx src/scripts/seedGatherItems.ts",
     "db:seed:highTier": "tsx src/scripts/seedHighTierItems.ts",
     "db:seed:craft": "tsx src/scripts/seedCraftItems.ts",
+    "sim:balance": "tsx src/scripts/simBalance.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:typecheck": "tsc -p tsconfig.test.json"

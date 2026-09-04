@@ -55,6 +55,12 @@
 - `npm run test:watch` — watch 模式
 - `npm run test:typecheck` — 只做型別檢查，不編譯輸出
 
+## 平衡模擬
+
+- `npm run sim:balance` — 用實際的戰鬥公式（`src/services/combat.ts`）跑蒙地卡羅，印出各等級 × 各裝備階段的單場勝率、連續場次穩態勝率、升級節奏
+
+**改任何戰鬥數值之前先跑這支腳本看表**，不要憑感覺調。腳本用固定亂數種子，每次跑出同一張表，所以改公式前後可以直接比對差異。不需要資料庫也能跑。
+
 ## 部署
 
 正式環境跑在 Oracle Cloud VM 上，PM2 常駐、cron 輪詢 `git pull` 自動部署。完整架構、`deploy.sh` 內容、已知缺口見 [PRD.md 第 8 節](PRD.md#8-部署與維運架構2026-08-31-補記)。
