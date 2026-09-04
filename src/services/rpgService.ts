@@ -145,6 +145,48 @@ export function xpThresholdForLevel(level: number): number {
   return 50 * level * level;
 }
 
+// 每升一級加多少屬性
+const LEVEL_UP_ATTACK_GAIN = 2;
+const LEVEL_UP_DEFENSE_GAIN = 1;
+const LEVEL_UP_MAX_HEALTH_GAIN = 10;
+
+interface LevelUpResult {
+  newLevel: number;
+  levelsGained: number;
+  /** 升級後的有效生命上限；沒升級時就等於傳進來的 currentMaxHealth */
+  newMaxHealth: number;
+  /** 直接展開進 prisma.user.update 的 data 裡用；沒升級時是空物件 */
+  statIncrements: Prisma.UserUpdateInput;
+}
+
+// 戰鬥勝、戰鬥敗、菁英怪、地下城四處結算都要跑同一套升級判定，原本是四份逐字重複的程式碼。
+// 這裡只抽「共通的部分」——跨了幾級、新的生命上限、要寫進資料庫的屬性增量；
+// 血量最後要寫多少刻意不在這裡決定，因為四處的規則本來就不一樣（勝利補滿、落敗砍到下限、
+// 地下城還要看有沒有全破），硬要一起抽只會變成一堆旗標參數
+function computeLevelUp(currentLevel: number, newXP: number, currentMaxHealth: number): LevelUpResult {
+  // 用迴圈處理一次獲得的經驗值就跨過多個等級門檻的情況
+  let newLevel = currentLevel;
+  while (newXP >= xpThresholdForLevel(newLevel)) {
+    newLevel++;
+  }
+  const levelsGained = newLevel - currentLevel;
+
+  return {
+    newLevel,
+    levelsGained,
+    newMaxHealth: currentMaxHealth + levelsGained * LEVEL_UP_MAX_HEALTH_GAIN,
+    statIncrements:
+      levelsGained > 0
+        ? {
+            level: { increment: levelsGained },
+            attack: { increment: levelsGained * LEVEL_UP_ATTACK_GAIN },
+            defense: { increment: levelsGained * LEVEL_UP_DEFENSE_GAIN },
+            maxHealth: { increment: levelsGained * LEVEL_UP_MAX_HEALTH_GAIN },
+          }
+        : {},
+  };
+}
+
 function pickFromWeightedTiers(tiers: WeightedTier[]): string {
   const totalWeight = tiers.reduce((sum, tier) => sum + tier.weight, 0);
   let roll = randomInt(0, totalWeight);
@@ -474,16 +516,11 @@ export class RPGService {
       xpGained = Math.round((10 + enemyLevel * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100));
       goldGained = Math.round((5 + enemyLevel * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100));
 
-      const currentLevel = user.level;
-      const newXP = user.xp + xpGained;
-
-      // 用迴圈處理單場戰鬥獲得的經驗值一次跨過多個等級門檻的情況
-      let newLevel = currentLevel;
-      while (newXP >= xpThresholdForLevel(newLevel)) {
-        newLevel++;
-      }
-      const levelsGained = newLevel - currentLevel;
-      const newMaxHealth = effectiveStats.maxHealth + levelsGained * 10;
+      const { newLevel, levelsGained, newMaxHealth, statIncrements } = computeLevelUp(
+        user.level,
+        user.xp + xpGained,
+        effectiveStats.maxHealth
+      );
       effectiveMaxHealth = newMaxHealth;
 
       message =
@@ -496,14 +533,7 @@ export class RPGService {
         data: {
           xp: { increment: xpGained },
           gold: { increment: goldGained },
-          ...(levelsGained > 0
-            ? {
-                level: { increment: levelsGained },
-                attack: { increment: levelsGained * 2 },
-                defense: { increment: levelsGained },
-                maxHealth: { increment: levelsGained * 10 },
-              }
-            : {}),
+          ...statIncrements,
           // health 取決於這場戰鬥模擬出的結果，不是相對資料庫舊值的增減，所以維持絕對值寫入
           // 升級的話直接補滿；沒升級才維持原本「贏了回一點血」的規則
           health: levelsGained > 0 ? newMaxHealth : healOnWin(userHealth, newMaxHealth),
@@ -515,28 +545,18 @@ export class RPGService {
 
       // 落敗的安慰經驗值也可能跨過升級門檻，等級/屬性要照樣升，不然經驗值會卡在超過門檻卻不升級的爆表狀態；
       // 但血量仍然要照落敗懲罰砍到（新）上限的 30%，不能因為剛好升級就用全滿血蓋掉這次的敗北
-      const currentLevel = user.level;
-      const newXP = user.xp + xpGained;
-      let newLevel = currentLevel;
-      while (newXP >= xpThresholdForLevel(newLevel)) {
-        newLevel++;
-      }
-      const levelsGained = newLevel - currentLevel;
-      const newMaxHealthOnLoss = effectiveStats.maxHealth + levelsGained * 10;
+      const { newMaxHealth: newMaxHealthOnLoss, statIncrements } = computeLevelUp(
+        user.level,
+        user.xp + xpGained,
+        effectiveStats.maxHealth
+      );
       effectiveMaxHealth = newMaxHealthOnLoss;
 
       await prisma.user.update({
         where: { id: user.id },
         data: {
           xp: { increment: xpGained },
-          ...(levelsGained > 0
-            ? {
-                level: { increment: levelsGained },
-                attack: { increment: levelsGained * 2 },
-                defense: { increment: levelsGained },
-                maxHealth: { increment: levelsGained * 10 },
-              }
-            : {}),
+          ...statIncrements,
           health: lossHealthFloor(newMaxHealthOnLoss, user.level),
         },
       });
@@ -579,30 +599,20 @@ export class RPGService {
             },
           });
         } else {
-          const currentLevel = updatedUser.level;
-          const newXP = updatedUser.xp + bonus.xpGained;
-          let newLevel = currentLevel;
-          while (newXP >= xpThresholdForLevel(newLevel)) {
-            newLevel++;
-          }
-          const levelsGained = newLevel - currentLevel;
+          const { levelsGained, newMaxHealth, statIncrements } = computeLevelUp(
+            updatedUser.level,
+            updatedUser.xp + bonus.xpGained,
+            postBattleStats.maxHealth
+          );
           bonusLevelsGained = levelsGained;
-          const newMaxHealth = postBattleStats.maxHealth + levelsGained * 10;
-          finalEffectiveMaxHealth = levelsGained > 0 ? newMaxHealth : postBattleStats.maxHealth;
+          finalEffectiveMaxHealth = newMaxHealth;
 
           await prisma.user.update({
             where: { id: user.id },
             data: {
               xp: { increment: bonus.xpGained },
               gold: { increment: bonus.goldGained },
-              ...(levelsGained > 0
-                ? {
-                    level: { increment: levelsGained },
-                    attack: { increment: levelsGained * 2 },
-                    defense: { increment: levelsGained },
-                    maxHealth: { increment: levelsGained * 10 },
-                  }
-                : {}),
+              ...statIncrements,
               health: levelsGained > 0 ? newMaxHealth : bonus.finalHealth,
             },
           });
@@ -723,15 +733,12 @@ export class RPGService {
       totalXpGained += completionBonusXp;
     }
 
-    const currentLevel = user.level;
-    const newXP = user.xp + totalXpGained;
-    let newLevel = currentLevel;
-    while (newXP >= xpThresholdForLevel(newLevel)) {
-      newLevel++;
-    }
-    const levelsGained = newLevel - currentLevel;
-    const newMaxHealth = effectiveStats.maxHealth + levelsGained * 10;
-    const effectiveMaxHealth = levelsGained > 0 ? newMaxHealth : effectiveStats.maxHealth;
+    const { levelsGained, newMaxHealth, statIncrements } = computeLevelUp(
+      user.level,
+      user.xp + totalXpGained,
+      effectiveStats.maxHealth
+    );
+    const effectiveMaxHealth = newMaxHealth;
     // 整趟用落敗收尾的話，就算安慰經驗值剛好湊到升級門檻，血量還是要照落敗懲罰砍到（新）上限的下限比例，
     // 不能讓升級的全滿血蓋掉這次的敗北；只有全破才會用升級的全滿血
     const finalHealthValue = !clearedAllFloors
@@ -745,14 +752,7 @@ export class RPGService {
       data: {
         xp: { increment: totalXpGained },
         gold: { increment: totalGoldGained },
-        ...(levelsGained > 0
-          ? {
-              level: { increment: levelsGained },
-              attack: { increment: levelsGained * 2 },
-              defense: { increment: levelsGained },
-              maxHealth: { increment: levelsGained * 10 },
-            }
-          : {}),
+        ...statIncrements,
         health: finalHealthValue,
       },
     });
