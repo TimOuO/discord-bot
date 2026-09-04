@@ -13,3 +13,13 @@ export function getLocalDateString(date: Date): string {
     day: "2-digit",
   }).format(date);
 }
+
+/**
+ * 兩個 YYYY-MM-DD 日期字串相差幾天（to - from，可能是負數）。
+ * 刻意用 UTC 解析純日期字串來算，不碰本地時區的 getDate/setDate，避免跨時區時多一天少一天。
+ */
+export function daysBetweenDateStrings(from: string, to: string): number {
+  const fromMs = Date.parse(`${from}T00:00:00Z`);
+  const toMs = Date.parse(`${to}T00:00:00Z`);
+  return Math.round((toMs - fromMs) / (24 * 60 * 60 * 1000));
+}

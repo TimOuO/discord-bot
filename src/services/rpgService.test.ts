@@ -3,6 +3,7 @@ import { RPGService, xpThresholdForLevel } from "./rpgService";
 import type { DailyClaimResult } from "./rpgService";
 import { ItemService } from "./itemService";
 import { createTestUser, createTestItem } from "../../test/helpers";
+import { getLocalDateString } from "../utils/datetime";
 import prisma from "./dbService";
 
 // 跟 rpgService.ts 的 FISH_TABLE/GATHER_TABLE 對應（含稀有度，順序一致）：battle() 額外事件的道具/
@@ -681,6 +682,83 @@ describe("RPGService.claimDaily", () => {
     const second = await RPGService.claimDaily(discordUserId);
 
     expect(second.status).toBe("already_claimed");
+  });
+
+  // 連續簽到相關的測試都要偽造「上次簽到是幾天前」，直接改資料庫欄位比等真的過一天實際
+  async function setLastCheckIn(discordUserId: string, daysAgo: number, streak: number) {
+    const date = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+    await prisma.user.update({
+      where: { userId: discordUserId },
+      data: {
+        lastDaily: date,
+        lastStreakDate: getLocalDateString(date),
+        loginStreak: streak,
+      },
+    });
+  }
+
+  it("昨天有簽到，今天連續天數 +1", async () => {
+    const { discordUserId } = await createTestUser();
+    await setLastCheckIn(discordUserId, 1, 4);
+
+    const result = await RPGService.claimDaily(discordUserId);
+
+    expect(result.status).toBe("claimed");
+    if (result.status === "claimed") expect(result.streak).toBe(5);
+  });
+
+  it("漏簽一天在寬限期內：連續天數保留但不增加", async () => {
+    const { discordUserId } = await createTestUser();
+    await setLastCheckIn(discordUserId, 2, 12);
+
+    const result = await RPGService.claimDaily(discordUserId);
+
+    expect(result.status).toBe("claimed");
+    // 保留 12（不歸零），但也不會變成 13——那天畢竟沒簽到
+    if (result.status === "claimed") expect(result.streak).toBe(12);
+  });
+
+  it("漏簽兩天以上就歸零重來", async () => {
+    const { discordUserId } = await createTestUser();
+    await setLastCheckIn(discordUserId, 3, 20);
+
+    const result = await RPGService.claimDaily(discordUserId);
+
+    expect(result.status).toBe("claimed");
+    if (result.status === "claimed") expect(result.streak).toBe(1);
+  });
+
+  it("連續獎勵是基礎金幣的百分比（每天 2%），會跟著等級一起成長", async () => {
+    // 用 Lv40：基礎金幣是 (50 + 隨機 0~199) × 5，最低 250，20% 保證至少 50，
+    // 下面「勝過舊制固定 40 金幣」的斷言才會必然成立（用 Lv20 的話最低只有 30，會偶發失敗）
+    const { discordUserId } = await createTestUser({ level: 40 });
+    await setLastCheckIn(discordUserId, 1, 9);
+
+    const result = await RPGService.claimDaily(discordUserId);
+
+    expect(result.status).toBe("claimed");
+    if (result.status === "claimed") {
+      expect(result.streak).toBe(10);
+      // 連續 10 天 = 基礎金幣的 20%
+      expect(result.streakBonus).toBe(Math.round(result.goldReward * 0.2));
+      expect(result.streakBonusPercent).toBe(20);
+      expect(result.finalGoldReward).toBe(result.goldReward + result.streakBonus);
+      // 舊制連續 10 天不管幾級都固定只有 40 金幣，新制在這個等級一定明顯更多
+      expect(result.streakBonus).toBeGreaterThan(40);
+    }
+  });
+
+  it("連續獎勵封頂在 30 天（+60%），不會無限成長", async () => {
+    const { discordUserId } = await createTestUser({ level: 20 });
+    await setLastCheckIn(discordUserId, 1, 99);
+
+    const result = await RPGService.claimDaily(discordUserId);
+
+    expect(result.status).toBe("claimed");
+    if (result.status === "claimed") {
+      expect(result.streak).toBe(100);
+      expect(result.streakBonus).toBe(Math.round(result.goldReward * 0.6));
+    }
   });
 
   it("手動簽到跟語音自動簽到幾乎同時觸發時，只有一邊真的領到獎勵（競態測試）", async () => {

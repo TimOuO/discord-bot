@@ -1,6 +1,6 @@
 import { Item, User } from "../generated/prisma";
 import { randomInt, randomChance } from "../utils/random";
-import { getLocalDateString } from "../utils/datetime";
+import { daysBetweenDateStrings, getLocalDateString } from "../utils/datetime";
 import prisma from "./dbService";
 import { ItemService } from "./itemService";
 import type { EffectiveStats } from "./itemService";
@@ -194,19 +194,18 @@ async function rollBattleBonusEvent(
   return { events, xpGained, goldGained, finalHealth };
 }
 
+// 連續簽到獎勵：每連續一天加基礎金幣的 2%，最多加到 +60%（連續 30 天封頂）
+const STREAK_BONUS_PER_DAY = 0.02;
+const STREAK_BONUS_MAX_DAYS = 30;
+// 漏簽幾天以內還算在寬限期（2 代表「昨天沒簽、但前天有簽」還救得回來）
+const STREAK_GRACE_GAP_DAYS = 2;
+
 // 每日重置的邊界是台北時間 00:00，固定用 +08:00 換算，跟主機所在時區無關
 function getNextResetTime(date: Date): Date {
   const todayStr = getLocalDateString(date);
   const next = new Date(`${todayStr}T00:00:00+08:00`);
   next.setUTCDate(next.getUTCDate() + 1);
   return next;
-}
-
-// 用純字串運算算「隔天」，避免用 Date 物件的 local getDate/setDate 造成時區偏移
-function addDaysToDateString(dateStr: string, days: number): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().split("T")[0];
 }
 
 export interface DungeonFloorResult {
@@ -257,6 +256,8 @@ export type DailyClaimResult =
       status: "claimed";
       goldReward: number;
       streakBonus: number;
+      /** 連續獎勵的加成比例（百分比，例如連續 10 天就是 20），給卡片顯示「為什麼是這個數字」用 */
+      streakBonusPercent: number;
       finalGoldReward: number;
       xpReward: number;
       streak: number;
@@ -812,24 +813,30 @@ export class RPGService {
       (baseXP + dailyXpRoll) * xpMultiplier * (1 + effectiveStats.xpBonus / 100)
     );
     let streak = user.loginStreak || 0;
-    let streakBonus = 0;
     const currentDate = todayString;
     const lastStreakDate = user.lastStreakDate;
 
     if (lastStreakDate) {
-      const expectedNextDate = addDaysToDateString(lastStreakDate, 1);
-
-      if (expectedNextDate === currentDate) {
+      const daysSinceLastStreak = daysBetweenDateStrings(lastStreakDate, currentDate);
+      if (daysSinceLastStreak === 1) {
         streak += 1;
-        if (streak % 5 === 0) {
-          streakBonus = Math.floor(streak / 5) * 20;
-        }
+      } else if (daysSinceLastStreak === STREAK_GRACE_GAP_DAYS) {
+        // 寬限期：漏簽一天不會歸零，但那天也不算數，所以連續天數保留、不增加
+        //（不然「隔一天簽一次」也能無限累積，連續紀錄就沒有意義了）
+        streak = Math.max(1, streak);
       } else {
         streak = 1;
       }
     } else {
       streak = 1;
     }
+
+    // 連續獎勵改成「基礎金幣的百分比」：原本是每滿 5 天給固定 20 金幣，跟等級完全無關，
+    // Lv20 時只佔基礎簽到金幣的 40%、Lv80 只剩 5%，等於越玩越無感；而且只有 5 的倍數那天
+    // 才給，五天裡有四天完全看不到連續獎勵。改成百分比後會自動跟著等級成長，且每天都看得到。
+    const streakBonusRatio = Math.min(streak, STREAK_BONUS_MAX_DAYS) * STREAK_BONUS_PER_DAY;
+    const streakBonus = Math.round(goldReward * streakBonusRatio);
+    const streakBonusPercent = Math.round(streakBonusRatio * 100);
 
     const finalGoldReward = goldReward + streakBonus;
 
@@ -861,6 +868,7 @@ export class RPGService {
       status: "claimed",
       goldReward,
       streakBonus,
+      streakBonusPercent,
       finalGoldReward,
       xpReward,
       streak,
