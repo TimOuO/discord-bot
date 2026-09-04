@@ -163,9 +163,9 @@ describe("RPGService.battle", () => {
     expect(result.rounds).toBe(1);
   });
 
-  it("屬性壓倒性落後時保證落敗，血量掉到約 30% 上限（Lv6，不吃新手保護的 60%）", async () => {
+  it("屬性壓倒性落後時保證落敗，血量掉到約 30% 上限（Lv15，保底已經遞減到底、不吃新手保護）", async () => {
     const { discordUserId } = await createTestUser({
-      level: 6,
+      level: 15,
       attack: 1,
       defense: 0,
       health: 1,
@@ -199,12 +199,12 @@ describe("RPGService.battle", () => {
 
   it("落敗時安慰經驗值剛好跨過升級門檻，等級要照樣升，不能讓經驗值卡在超過門檻卻不升級的爆表狀態", async () => {
     const { discordUserId, user } = await createTestUser({
-      level: 6,
+      level: 15,
       attack: 1,
       defense: 0,
       health: 1,
       maxHealth: 100,
-      xp: xpThresholdForLevel(6) - 1, // 隨便一點安慰經驗值就會跨過門檻，剛好升 1 級
+      xp: xpThresholdForLevel(15) - 1, // 隨便一點安慰經驗值就會跨過門檻，剛好升 1 級
     });
 
     const result = await RPGService.battle(discordUserId);
@@ -212,7 +212,7 @@ describe("RPGService.battle", () => {
     expect(result.result).toBe("lose");
     expect(result.user.level).toBeGreaterThan(user.level);
     expect(result.user.xp).toBeLessThan(xpThresholdForLevel(result.user.level));
-    // 血量仍然要照落敗懲罰砍到（新）上限的 30%（Lv6 不吃新手保護），不能因為剛好升級就用全滿血蓋掉這次的敗北
+    // 血量仍然要照落敗懲罰砍到（新）上限的 30%（Lv15 保底已經遞減到底），不能因為剛好升級就用全滿血蓋掉這次的敗北
     expect(result.user.health).toBe(Math.floor(result.effectiveMaxHealth * 0.3));
     expect(result.user.health).toBeLessThan(result.effectiveMaxHealth);
   });
@@ -525,14 +525,14 @@ describe("RPGService.dungeon", () => {
     }
   });
 
-  it("整趟落敗收尾時，就算安慰經驗值剛好湊到升級門檻，血量仍要照落敗懲罰砍到 30%，不能被升級的全滿血蓋掉（Lv6，不吃新手保護）", async () => {
+  it("整趟落敗收尾時，就算安慰經驗值剛好湊到升級門檻，血量仍要照落敗懲罰砍到 30%，不能被升級的全滿血蓋掉（Lv15，保底已經遞減到底）", async () => {
     const { discordUserId, user } = await createTestUser({
-      level: 6,
+      level: 15,
       attack: 1,
       defense: 0,
       health: 1,
       maxHealth: 100,
-      xp: xpThresholdForLevel(6) - 1,
+      xp: xpThresholdForLevel(15) - 1,
     });
 
     const result = await RPGService.dungeon(discordUserId);

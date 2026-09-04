@@ -89,15 +89,22 @@ describe("戰鬥平衡回歸", () => {
     expect(singleFightWinRate(1, statsFor(1, NO_GEAR))).toBeGreaterThan(0.8);
   });
 
-  // 目前的已知問題：lossHealthFloor 在 Lv5→Lv6 是硬切（80% 掉到 30%），沒買藥水的玩家
-  // 連續作戰時勝率直接崩掉。這條測試把「現況」釘住——修好 Lv6 懸崖之後它會變紅燈，
-  // 那時候要做的是更新這裡的期望值，不是把測試刪掉
-  it("【已知問題】Lv6 沒裝備連續作戰會陷入死亡螺旋，勝率低於兩成", () => {
-    expect(chainWinRate(6, statsFor(6, NO_GEAR))).toBeLessThan(0.2);
-  });
-
   it("Lv5 沒裝備連續作戰還撐得住（新手保護的 80% 保底有效）", () => {
     expect(chainWinRate(5, statsFor(5, NO_GEAR))).toBeGreaterThan(0.25);
+  });
+
+  // 這條原本釘的是「Lv6 勝率低於兩成」的壞掉現況（硬切保底造成的死亡螺旋），
+  // 保底改成 Lv5→Lv15 線性遞減之後如預期變紅燈，這裡把期望值更新成修好後該有的樣子：
+  // Lv5 過到 Lv6 不該是斷崖，而是平緩下降
+  it("Lv5 過到 Lv6 不會出現斷崖，連續作戰勝率不會腰斬到剩零頭", () => {
+    const atLv5 = chainWinRate(5, statsFor(5, NO_GEAR));
+    const atLv6 = chainWinRate(6, statsFor(6, NO_GEAR));
+
+    expect(atLv6).toBeGreaterThan(atLv5 * 0.4);
+  });
+
+  it("Lv6 帶著新手背包連續作戰站得住腳", () => {
+    expect(chainWinRate(6, statsFor(6, STARTER_KIT))).toBeGreaterThan(0.3);
   });
 });
 
@@ -127,9 +134,23 @@ describe("computeLevelUp", () => {
 });
 
 describe("lossHealthFloor", () => {
-  it("Lv5 保底是上限的 80%，Lv6 掉到 30%（目前的硬切邊界）", () => {
+  it("Lv5 以下維持 80%，Lv15 以上維持 30%", () => {
+    expect(lossHealthFloor(200, 1)).toBe(160);
     expect(lossHealthFloor(200, 5)).toBe(160);
-    expect(lossHealthFloor(200, 6)).toBe(60);
+    expect(lossHealthFloor(200, 15)).toBe(60);
+    expect(lossHealthFloor(200, 80)).toBe(60);
+  });
+
+  it("Lv5 到 Lv15 之間線性遞減，沒有任何一級是斷崖", () => {
+    expect(lossHealthFloor(200, 6)).toBe(150); // 75%
+    expect(lossHealthFloor(200, 10)).toBe(110); // 55%
+    expect(lossHealthFloor(200, 14)).toBe(70); // 35%
+
+    // 相鄰等級之間的落差不該超過整體遞減幅度的一半（也就是不能有硬切）
+    for (let level = 1; level < 20; level++) {
+      const drop = lossHealthFloor(200, level) - lossHealthFloor(200, level + 1);
+      expect(drop).toBeLessThan((160 - 60) / 2);
+    }
   });
 
   it("再低也至少保留 10 點血", () => {

@@ -87,12 +87,33 @@ export function healOnWin(currentHealth: number, maxHealth: number): number {
   return Math.min(currentHealth + Math.round(maxHealth * WIN_HEAL_RATIO), maxHealth);
 }
 
-// 新手保護：Lv5 以下落敗只砍到上限的 80%，不是 30%。新手通常還沒買藥水、也不知道要去商店買，
-// 同等級敵人每場都是滿血迎戰，玩家只要沒有回到接近滿血，下一場就會持續處於劣勢；
-// 試過 60% 還是會連續輸好幾場爬不回來，80% 才能真的打破「血越少、越容易再輸、血更少」的死亡螺旋
-// ——這個保護只影響落敗的血量下限，不影響戰鬥本身的勝率
+// 落敗後血量的保底比例。新手通常還沒買藥水、也不知道要去商店買，而敵人每場都是滿血迎戰，
+// 玩家只要沒有回到接近滿血，下一場就會持續處於劣勢，形成「血越少、越容易再輸、血更少」的死亡螺旋。
+//
+// 原本是 Lv5 以下 80%、Lv6 以上直接掉到 30% 的硬切，結果螺旋沒有消失、只是整個搬到 Lv6：
+// npm run sim:balance 實測連續作戰勝率，Lv5 沒裝備 48%／新手套 61%，到 Lv6 直接崩到 3%／4%。
+// 改成 Lv5 到 Lv15 線性遞減，讓保護隨著玩家有能力買裝備藥水而逐步收回（同樣實測，
+// Lv6 回到 29%／46%，Lv15 以後維持原本的 30%）。
+//
+// 注意這裡只處理「場內連續作戰」的螺旋。「昨天輸了今天回來還是殘血」是另一個獨立的軸，
+// 要靠離線回血之類的機制解，不在這個函式的範圍內。
+const LOSS_FLOOR_MAX_RATIO = 0.8; // Lv5 以下
+const LOSS_FLOOR_MIN_RATIO = 0.3; // Lv15 以上
+const LOSS_FLOOR_RAMP_START_LEVEL = 5;
+const LOSS_FLOOR_RAMP_END_LEVEL = 15;
+
 export function lossHealthFloor(maxHealth: number, userLevel: number): number {
-  const ratio = userLevel <= 5 ? 0.8 : 0.3;
+  let ratio: number;
+  if (userLevel <= LOSS_FLOOR_RAMP_START_LEVEL) {
+    ratio = LOSS_FLOOR_MAX_RATIO;
+  } else if (userLevel >= LOSS_FLOOR_RAMP_END_LEVEL) {
+    ratio = LOSS_FLOOR_MIN_RATIO;
+  } else {
+    const progress =
+      (userLevel - LOSS_FLOOR_RAMP_START_LEVEL) /
+      (LOSS_FLOOR_RAMP_END_LEVEL - LOSS_FLOOR_RAMP_START_LEVEL);
+    ratio = LOSS_FLOOR_MAX_RATIO - progress * (LOSS_FLOOR_MAX_RATIO - LOSS_FLOOR_MIN_RATIO);
+  }
   return Math.max(10, Math.floor(maxHealth * ratio));
 }
 
