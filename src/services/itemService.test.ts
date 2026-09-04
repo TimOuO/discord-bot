@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ItemService } from "./itemService";
-import { createTestUser, createTestItem } from "../../test/helpers";
+import { createTestUser, createTestItem, ownedCount } from "../../test/helpers";
 import prisma from "./dbService";
 
 describe("ItemService.buyItem", () => {
@@ -13,7 +13,7 @@ describe("ItemService.buyItem", () => {
     expect(result.quantity).toBe(1);
 
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === item.id)?.quantity).toBe(1);
+    expect(await ownedCount(user.id, item.id)).toBe(1);
   });
 
   it("金幣不夠時拒絕購買", async () => {
@@ -41,7 +41,7 @@ describe("ItemService.buyItem", () => {
     const updatedUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(updatedUser.gold).toBe(40);
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === item.id)?.quantity).toBe(1);
+    expect(await ownedCount(user.id, item.id)).toBe(1);
   });
 
   it("魚類道具不能用 buyItem 購買", async () => {
@@ -112,7 +112,7 @@ describe("ItemService.sellItem", () => {
     expect(result.sellPrice).toBe(50);
     expect(result.goldAfter).toBe(50); // 買之前 100 金幣，花 100 買、賣回 50，剩 50
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === item.id)).toBeUndefined();
+    expect(await ownedCount(user.id, item.id)).toBe(0);
   });
 
   it("正在裝備中的最後一件不能賣掉", async () => {
@@ -142,7 +142,7 @@ describe("ItemService.sellItem", () => {
     const updatedUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(updatedUser.gold).toBe(50);
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === item.id)).toBeUndefined();
+    expect(await ownedCount(user.id, item.id)).toBe(0);
   });
 
   it("可以一次指定數量賣出多個，金額跟庫存都照數量計算", async () => {
@@ -156,7 +156,7 @@ describe("ItemService.sellItem", () => {
 
     expect(result.sellPrice).toBe(100); // 50 * 2
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === item.id)?.quantity).toBe(1);
+    expect(await ownedCount(user.id, item.id)).toBe(1);
   });
 
   it("指定數量超過可賣的上限時拒絕，並告知上限", async () => {
@@ -199,7 +199,7 @@ describe("ItemService.sellAllOfItem", () => {
     expect(result.amount).toBe(3);
     expect(result.sellPrice).toBe(150); // 50 * 3
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === item.id)).toBeUndefined();
+    expect(await ownedCount(user.id, item.id)).toBe(0);
   });
 
   it("裝備中的那件不會被賣掉，只賣多出來的數量", async () => {
@@ -212,7 +212,7 @@ describe("ItemService.sellAllOfItem", () => {
 
     expect(result.amount).toBe(1);
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === weapon.id)?.quantity).toBe(1);
+    expect(await ownedCount(user.id, weapon.id)).toBe(1);
   });
 
   it("全部都裝備中時拒絕", async () => {
@@ -265,7 +265,7 @@ describe("ItemService.useItem", () => {
     expect(result.healedAmount).toBe(90);
     expect(result.newHealth).toBe(100);
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === potion.id)).toBeUndefined(); // 全部用完，該行應該被刪除
+    expect(await ownedCount(user.id, potion.id)).toBe(0); // 全部用完，該行應該被刪除
   });
 
   it("要求的數量超過回滿血量所需時，只用剛好回滿的數量，不浪費藥水", async () => {
@@ -279,7 +279,7 @@ describe("ItemService.useItem", () => {
     expect(result.requestedAmount).toBe(5);
     expect(result.newHealth).toBe(100);
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === potion.id)?.quantity).toBe(4);
+    expect(await ownedCount(user.id, potion.id)).toBe(4);
   });
 
   it("要求使用的數量超過庫存時拒絕", async () => {
@@ -303,7 +303,7 @@ describe("ItemService.equipItem", () => {
     await ItemService.buyItem(user.id, accC.name); // 自動裝進 accessory3
     await ItemService.buyItem(user.id, accD.name); // 三欄都滿了，不會自動裝
 
-    const result = await ItemService.equipItem(user.id, accD.name);
+    const result = await ItemService.equipItemByName(user.id, accD.name);
 
     expect(result.slot).toBe("accessory1");
     expect(result.replacedItem?.name).toBe(accA.name);
@@ -320,7 +320,7 @@ describe("ItemService.equipItem", () => {
     await ItemService.buyItem(user.id, accC.name); // accessory3
     await ItemService.buyItem(user.id, accD.name); // 三欄都滿了，不會自動裝
 
-    const result = await ItemService.equipItem(user.id, accD.name, "accessory2");
+    const result = await ItemService.equipItemByName(user.id, accD.name, "accessory2");
 
     expect(result.slot).toBe("accessory2");
     expect(result.replacedItem?.name).toBe(accB.name);
@@ -336,7 +336,7 @@ describe("ItemService.equipItem", () => {
     await ItemService.buyItem(user.id, weapon.name);
 
     await expect(
-      ItemService.equipItem(user.id, weapon.name, "accessory1")
+      ItemService.equipItemByName(user.id, weapon.name, "accessory1")
     ).rejects.toThrow("不能裝到");
   });
 });
@@ -373,8 +373,8 @@ describe("ItemService.craftItem", () => {
 
     expect(result.quantity).toBe(1);
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === material.id)?.quantity).toBe(2); // 5 - 3
-    expect(inventory.find((row) => row.itemId === product.id)?.quantity).toBe(1);
+    expect(await ownedCount(user.id, material.id)).toBe(2); // 5 - 3
+    expect(await ownedCount(user.id, product.id)).toBe(1);
   });
 
   it("材料不夠時拒絕鍛造，且不能扣掉一半材料", async () => {
@@ -391,7 +391,7 @@ describe("ItemService.craftItem", () => {
 
     // transaction 要整個回滾，手上的材料不能被扣掉
     const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((row) => row.itemId === material.id)?.quantity).toBe(1);
+    expect(await ownedCount(user.id, material.id)).toBe(1);
   });
 
   it("道具沒有配方時拒絕鍛造", async () => {
@@ -483,5 +483,84 @@ describe("ItemService.getEffectiveStats", () => {
 
     expect(stats.attack).toBe(110);
     expect(stats.critRate).toBe(20);
+  });
+});
+
+describe("裝備實體（同名裝備可以分別存在）", () => {
+  it("買兩件同名裝備會產生兩個獨立實體，可以各自被指到", async () => {
+    const { user } = await createTestUser({ gold: 1000 });
+    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+
+    await ItemService.buyItem(user.id, weapon.name, 2);
+
+    const entries = await ItemService.getInventory(user.id);
+    const instances = entries.filter((e) => e.kind === "instance" && e.item.id === weapon.id);
+    expect(instances).toHaveLength(2);
+    // 兩件是不同的實體，各自有自己的 id
+    const ids = new Set(instances.map((e) => (e.kind === "instance" ? e.instanceId : "")));
+    expect(ids.size).toBe(2);
+  });
+
+  it("強化等級不同的同名裝備，有效屬性算的是「裝在身上那一件」的等級", async () => {
+    const { user } = await createTestUser({ gold: 1000, attack: 10 });
+    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    await ItemService.buyItem(user.id, weapon.name, 2);
+
+    const entries = await ItemService.getInventory(user.id);
+    const instances = entries.filter(
+      (e): e is Extract<typeof e, { kind: "instance" }> => e.kind === "instance"
+    );
+    // 把其中一件手動設成 +5（強化功能本身是下一階段才做，這裡直接改資料驗證計算路徑）
+    await prisma.itemInstance.update({ where: { id: instances[0].instanceId }, data: { enhanceLevel: 5 } });
+
+    await ItemService.equipItem(user.id, instances[0].instanceId);
+    const enhanced = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+    // 20 * (1 + 5*0.1) = 30
+    expect(enhanced.attack).toBe(user.attack + 30);
+
+    await ItemService.equipItem(user.id, instances[1].instanceId);
+    const plain = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+    expect(plain.attack).toBe(user.attack + 20);
+  });
+
+  it("賣裝備是賣掉指定的那一件，裝備中的那件不能賣", async () => {
+    const { user } = await createTestUser({ gold: 1000 });
+    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    await ItemService.buyItem(user.id, weapon.name, 2); // 其中一件會自動裝上
+
+    const equipped = await ItemService.getEquipped(user.id);
+    const equippedId = equipped.find((e) => e.slot === "weapon")?.equipped?.instanceId;
+    expect(equippedId).toBeDefined();
+
+    await expect(ItemService.sellInstance(user.id, equippedId!)).rejects.toThrow("正在裝備中");
+
+    const entries = await ItemService.getInventory(user.id);
+    const spare = entries.find((e) => e.kind === "instance" && e.equippedSlot === null);
+    expect(spare).toBeDefined();
+
+    const result = await ItemService.sellInstance(user.id, (spare as { instanceId: string }).instanceId);
+    expect(result.sellPrice).toBe(50); // 100 的五折
+    expect(await ownedCount(user.id, weapon.id)).toBe(1); // 只剩裝備中的那件
+  });
+
+  it("賣出強化過的裝備，售價會跟著強化等級一起提高", async () => {
+    const { user } = await createTestUser({ gold: 1000 });
+    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    await ItemService.buyItem(user.id, weapon.name, 2);
+
+    const entries = await ItemService.getInventory(user.id);
+    const spare = entries.find((e) => e.kind === "instance" && e.equippedSlot === null) as { instanceId: string };
+    await prisma.itemInstance.update({ where: { id: spare.instanceId }, data: { enhanceLevel: 10 } });
+
+    const result = await ItemService.sellInstance(user.id, spare.instanceId);
+    expect(result.sellPrice).toBe(100); // 五折的 50，再乘上 +10 的兩倍
   });
 });

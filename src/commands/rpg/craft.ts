@@ -111,8 +111,7 @@ function getItemEffects(item: Item): string[] {
 async function getOwnedByName(discordUserId: string): Promise<Map<string, number>> {
   const user = await RPGService.findUserByDiscordId(discordUserId);
   if (!user) return new Map();
-  const inventory = await ItemService.getInventory(user.id);
-  return new Map(inventory.map((row) => [row.item.name, row.quantity]));
+  return ItemService.getOwnedCountsByName(user.id);
 }
 
 // 自動完成的下拉選單直接標出材料夠不夠，不用先送出指令才知道能不能做

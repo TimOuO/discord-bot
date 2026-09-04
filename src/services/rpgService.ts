@@ -318,24 +318,15 @@ export class RPGService {
       });
     }
 
-    const weapon = await ItemService.findItemByName("木劍");
-    if (weapon) {
-      await prisma.inventory.upsert({
-        where: { userId_itemId: { userId: userInternalId, itemId: weapon.id } },
-        create: { userId: userInternalId, itemId: weapon.id, quantity: 1 },
-        update: {},
-      });
-      await ItemService.equipItem(userInternalId, weapon.name);
-    }
+    // 武器/防具是裝備，要建成實體（一件一列）而不是可堆疊的庫存列
+    for (const name of ["木劍", "皮革護甲"]) {
+      const gear = await ItemService.findItemByName(name);
+      if (!gear) continue;
 
-    const armor = await ItemService.findItemByName("皮革護甲");
-    if (armor) {
-      await prisma.inventory.upsert({
-        where: { userId_itemId: { userId: userInternalId, itemId: armor.id } },
-        create: { userId: userInternalId, itemId: armor.id, quantity: 1 },
-        update: {},
+      const instance = await prisma.itemInstance.create({
+        data: { userId: userInternalId, itemId: gear.id },
       });
-      await ItemService.equipItem(userInternalId, armor.name);
+      await ItemService.equipItem(userInternalId, instance.id);
     }
   }
 

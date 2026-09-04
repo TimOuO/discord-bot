@@ -16,6 +16,7 @@ import {
   handleInventoryUseQtyButton,
   handleInventorySellButton,
   handleInventorySellQtyButton,
+  handleInventorySellInstanceButton,
 } from "./inventory";
 import { handleBattleCommand, handleBattleRematchButton } from "./battle";
 import { handleDungeonCommand, handleDungeonRetryButton } from "./dungeon";
@@ -57,6 +58,7 @@ export {
   handleInventoryUseQtyButton,
   handleInventorySellButton,
   handleInventorySellQtyButton,
+  handleInventorySellInstanceButton,
   handleShopPageButton,
   handleShopSelect,
   handleShopQtyButton,

@@ -47,13 +47,13 @@ async function checkDatabase() {
     const equippedItems = await prisma.equippedItem.findMany({
       include: {
         user: true,
-        item: true,
+        instance: { include: { item: true } },
       },
     });
     console.log(`\n===== 已裝備物品 (${equippedItems.length} 筆) =====`);
     equippedItems.forEach((eq) => {
       console.log(`使用者: ${eq.user.username}`);
-      console.log(`物品: ${eq.item.name}`);
+      console.log(`物品: ${eq.instance.item.name}（強化 +${eq.instance.enhanceLevel}）`);
       console.log(`裝備欄位: ${eq.slot}`);
       console.log("------------------------");
     });

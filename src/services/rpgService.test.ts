@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { RPGService, xpThresholdForLevel } from "./rpgService";
 import type { DailyClaimResult } from "./rpgService";
 import { ItemService } from "./itemService";
-import { createTestUser, createTestItem } from "../../test/helpers";
+import { createTestUser, createTestItem, ownedCount } from "../../test/helpers";
 import { getLocalDateString } from "../utils/datetime";
 import prisma from "./dbService";
 
@@ -102,10 +102,11 @@ describe("RPGService.startRPG", () => {
 
     const user = await RPGService.startRPG(discordUserId, "測試玩家");
 
-    const inventory = await ItemService.getInventory(user.id);
-    expect(inventory.find((r) => r.item.name === "木劍")?.quantity).toBe(1);
-    expect(inventory.find((r) => r.item.name === "皮革護甲")?.quantity).toBe(1);
-    expect(inventory.find((r) => r.item.name === "小型生命藥水")?.quantity).toBe(3);
+    // 武器/防具是一件一列的實體、藥水是可堆疊的，getOwnedCountsByName 把兩種都算成「擁有幾件」
+    const owned = await ItemService.getOwnedCountsByName(user.id);
+    expect(owned.get("木劍")).toBe(1);
+    expect(owned.get("皮革護甲")).toBe(1);
+    expect(owned.get("小型生命藥水")).toBe(3);
 
     const equipped = await ItemService.getEquipped(user.id);
     expect(equipped.find((e) => e.slot === "weapon")?.equipped?.item.name).toBe("木劍");
@@ -392,9 +393,7 @@ describe("RPGService.battle", () => {
 
     expect(itemEvent).toBeDefined();
     if (itemEvent && itemEvent.type === "item") {
-      const inventory = await ItemService.getInventory(user.id);
-      const row = inventory.find((r) => r.itemId === itemEvent.item.id);
-      expect(row?.quantity).toBe(itemEvent.quantity);
+      expect(await ownedCount(user.id, itemEvent.item.id)).toBe(itemEvent.quantity);
     }
   });
 
@@ -414,9 +413,7 @@ describe("RPGService.battle", () => {
       expect(eliteEvent.rareLoot).not.toBeNull();
       expect(["rare", "epic", "legendary"]).toContain(eliteEvent.rareLoot?.item.rarity);
 
-      const inventory = await ItemService.getInventory(user.id);
-      const row = inventory.find((r) => r.itemId === eliteEvent.rareLoot?.item.id);
-      expect(row?.quantity).toBe(eliteEvent.rareLoot?.quantity);
+      expect(await ownedCount(user.id, eliteEvent.rareLoot!.item.id)).toBe(eliteEvent.rareLoot!.quantity);
     }
   });
 

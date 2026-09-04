@@ -5,6 +5,7 @@ import {
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
 import { ItemService } from "../../services/itemService";
+import type { InventoryEntry } from "../../services/itemService";
 
 export async function handleUseCommand(interaction: ChatInputCommandInteraction) {
   try {
@@ -45,9 +46,14 @@ export async function useAutocomplete(interaction: AutocompleteInteraction) {
   const user = await RPGService.findUserByDiscordId(interaction.user.id);
   if (!user) return interaction.respond([]);
 
+  // 藥水一定是可堆疊的那一種（裝備才會是一件一列的實體）；
+  // 用型別述詞讓 TS 知道篩完之後只剩 stack，才拿得到 quantity
   const inventory = await ItemService.getInventory(user.id);
   const filtered = inventory
-    .filter((row) => row.item.type === "potion" && row.item.name.includes(focused))
+    .filter(
+      (row): row is Extract<InventoryEntry, { kind: "stack" }> =>
+        row.kind === "stack" && row.item.type === "potion" && row.item.name.includes(focused)
+    )
     .slice(0, 25);
 
   return interaction.respond(

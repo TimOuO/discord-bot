@@ -33,8 +33,9 @@ model User {
   updatedAt     DateTime @updatedAt
 
   // 關聯
-  inventory Inventory[]
-  equipped  EquippedItem[]
+  inventory     Inventory[]
+  itemInstances ItemInstance[]
+  equipped      EquippedItem[]
 }
 
 // 物品模型
@@ -55,11 +56,12 @@ model Item {
   updatedAt   DateTime @updatedAt
 
   // 關聯
-  inventory   Inventory[]
-  equippedBy  EquippedItem[]
+  inventory     Inventory[]
+  itemInstances ItemInstance[]
 }
 
-// 庫存模型 (多對多關聯)
+// 庫存模型：只放「可堆疊、個體之間沒有差異」的道具——藥水、魚、材料。
+// 裝備不走這裡，因為每一件裝備可以有各自的強化等級，見 ItemInstance
 model Inventory {
   id        String   @id @default(uuid())
   userId    String
@@ -75,18 +77,38 @@ model Inventory {
   @@unique([userId, itemId])
 }
 
-// 已裝備物品模型
-model EquippedItem {
-  id        String   @id @default(uuid())
-  userId    String
-  itemId    String
-  slot      String   // weapon, armor, accessory1, accessory2
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// 裝備實體：一列代表玩家擁有的「一件」武器/防具/飾品。
+// 同名裝備可以有多列、各自有不同的強化等級（+7 的屠龍劍跟 +0 的屠龍劍是兩件不同的東西），
+// 這是 Inventory 那種「同名就合併成一列加數量」的模型表達不出來的
+model ItemInstance {
+  id           String   @id @default(uuid())
+  userId       String
+  itemId       String
+  enhanceLevel Int      @default(0) // 強化等級 0~10，每級讓這件裝備的效果值 +10%
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // 關聯
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item      Item          @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  equipped  EquippedItem?
+
+  @@index([userId])
+}
+
+// 已裝備物品模型：指向「哪一件」裝備實體，不是指向道具種類，
+// 這樣才分得出玩家把 +7 的那把裝上去、還是 +0 的那把
+model EquippedItem {
+  id             String   @id @default(uuid())
+  userId         String
+  itemInstanceId String   @unique
+  slot           String   // weapon, armor, accessory1, accessory2, accessory3
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // 關聯
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instance ItemInstance @relation(fields: [itemInstanceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, slot])
 }

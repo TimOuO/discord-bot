@@ -19,7 +19,7 @@ import {
   ACCESSORY_SLOTS,
   formatEffectValue,
 } from "../../services/itemService";
-import type { EquipSlot } from "../../services/itemService";
+import type { EquipSlot, InventoryEntry } from "../../services/itemService";
 import type { Item } from "../../generated/prisma";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
@@ -31,20 +31,30 @@ type InventoryView = {
   components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[];
 };
 
+/** 強化等級的後綴，+0 不顯示（大多數裝備都是 +0，每件都掛個 +0 只是雜訊） */
+function enhanceSuffix(enhanceLevel: number): string {
+  return enhanceLevel > 0 ? ` +${enhanceLevel}` : "";
+}
+
 // 每件裝備旁邊直接標出它加了什麼數值，不用另外去換算「有效屬性」總和是怎麼來的；
-// 神話級鍛造裝備有第二種效果（effectType2/effectValue2）時一併列出
-function formatEquippedItem(item: {
-  name: string;
-  effectType: string;
-  effectValue: number;
-  effectType2?: string | null;
-  effectValue2?: number | null;
-}): string {
-  const effects = [formatEffectValue(item.effectType, item.effectValue)];
-  if (item.effectType2 && item.effectValue2 != null) {
-    effects.push(formatEffectValue(item.effectType2, item.effectValue2));
-  }
-  return `${item.name}（${effects.join("、")}）`;
+// 數值是算過強化倍率的實際值，神話級鍛造裝備的第二效果也一併列出
+function formatEquippedItem(item: Item, enhanceLevel: number): string {
+  const effects = ItemService.describeInstanceEffects(item, enhanceLevel).map((e) =>
+    formatEffectValue(e.type, e.value)
+  );
+  return `${item.name}${enhanceSuffix(enhanceLevel)}（${effects.join("、")}）`;
+}
+
+// 選單/按鈕要精準指到「哪一筆」：裝備指到實體 id（同名的 +7 跟 +0 是兩件不同的東西），
+// 可堆疊的道具用名稱就夠了（個體之間沒有差異）
+function entryKey(entry: InventoryEntry): string {
+  return entry.kind === "instance" ? entry.instanceId : entry.item.name;
+}
+
+function entryLabel(entry: InventoryEntry): string {
+  return entry.kind === "instance"
+    ? `${entry.item.name}${enhanceSuffix(entry.enhanceLevel)}`
+    : `${entry.item.name} x${entry.quantity}`;
 }
 
 // 不用記憶體存分頁狀態，customId 直接帶頁碼，資料每次都即時查，機器人重啟也不會讓按鈕失效
@@ -54,7 +64,7 @@ async function buildInventoryView(
   page: number,
   username: string,
   avatarURL: string,
-  selectedItemName?: string
+  selectedKey?: string
 ): Promise<InventoryView> {
   const user = await RPGService.findUserByDiscordId(discordUserId);
   if (!user) {
@@ -70,10 +80,6 @@ async function buildInventoryView(
       maxHealth: user.maxHealth,
     }),
   ]);
-
-  const equippedItemIds = new Set(
-    equipped.filter((e) => e.equipped).map((e) => e.equipped!.itemId)
-  );
 
   const embed = new EmbedBuilder()
     .setAuthor({ name: username, iconURL: avatarURL })
@@ -94,13 +100,13 @@ async function buildInventoryView(
         // 但每一格都要各自列出（含空格），不然只裝了 1、2 件時看不出來還有空位可以裝
         const accessoryLines = ACCESSORY_SLOTS.map((slot) => {
           const eq = equipped.find((e) => e.slot === slot)?.equipped;
-          return eq ? formatEquippedItem(eq.item) : "（空）";
+          return eq ? formatEquippedItem(eq.item, eq.enhanceLevel) : "（空）";
         });
         const filledCount = accessoryLines.filter((line) => line !== "（空）").length;
 
         return [
-          `武器：${weaponEq ? formatEquippedItem(weaponEq.item) : "（空）"}`,
-          `防具：${armorEq ? formatEquippedItem(armorEq.item) : "（空）"}`,
+          `武器：${weaponEq ? formatEquippedItem(weaponEq.item, weaponEq.enhanceLevel) : "（空）"}`,
+          `防具：${armorEq ? formatEquippedItem(armorEq.item, armorEq.enhanceLevel) : "（空）"}`,
           `飾品（${filledCount}/${ACCESSORY_SLOTS.length}）：${accessoryLines.join("、")}`,
         ];
       })())
@@ -128,14 +134,15 @@ async function buildInventoryView(
       lines.push(`${headerEmoji}｜${headerLabel}`);
     }
 
-    const isEquipped = equippedItemIds.has(row.itemId);
+    const isEquipped = row.kind === "instance" && row.equippedSlot !== null;
     const equippedTag = isEquipped ? "（裝備中）" : "";
-    // 已經裝備中的道具不用跟自己比較，直接顯示原始數值就好，比較是給「還沒裝備的候選道具」參考用的
+    // 已經裝備中的道具不用跟自己比較，直接顯示原始數值就好，比較是給「還沒裝備的候選道具」參考用的；
+    // 比較用的是算過強化的實際數值，不然 +7 的候選裝備會被當成 +0 來比
     const comparison =
-      EQUIPPABLE_TYPES.includes(row.item.type) && !isEquipped
-        ? `　${ItemService.computeEquipComparison(row.item.type, row.item, equipped)}`
+      row.kind === "instance" && !isEquipped
+        ? `　${ItemService.computeEquipComparison(row.item.type, row.item, equipped, row.enhanceLevel)}`
         : "";
-    lines.push(`　${row.item.name} x${chip(row.quantity)}${equippedTag}${comparison}`);
+    lines.push(`　${entryLabel(row)}${equippedTag}${comparison}`);
   }
   embed.addFields(sectionField("🧳", `道具（第 ${clampedPage + 1}/${totalPages} 頁）`, lines));
 
@@ -161,10 +168,10 @@ async function buildInventoryView(
     .setPlaceholder("選一個道具來裝備/使用/賣掉")
     .addOptions(
       pageItems.map((row) => ({
-        label: `${row.item.name} x${row.quantity}`,
-        value: row.item.name,
+        label: entryLabel(row).slice(0, 100),
+        value: entryKey(row),
         // 選單重繪時要標記目前選的是哪個，不然畫面會跳回「未選擇」，看不出下面的按鈕是對哪個道具生效
-        default: row.item.name === selectedItemName,
+        default: entryKey(row) === selectedKey,
       }))
     );
   components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
@@ -266,78 +273,78 @@ async function buildItemActionRows(
   userInternalId: string,
   ownerId: string,
   page: number,
-  item: Item,
+  entry: InventoryEntry,
   options: { useQty?: number; sellQty?: number } = {}
 ): Promise<ActionRowBuilder<ButtonBuilder>[]> {
-  const equipButtons: ButtonBuilder[] = [];
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+  const item = entry.item;
 
-  if (item.type === "weapon" || item.type === "armor") {
-    equipButtons.push(
-      new ButtonBuilder()
-        .setCustomId(buildCustomId("inv_equip", ownerId, String(page), item.name))
-        .setLabel("裝備")
-        .setEmoji("🛡️")
-        .setStyle(ButtonStyle.Primary)
-    );
-  } else if (item.type === "accessory") {
+  // ── 裝備實體：裝備/換欄 + 賣掉「這一件」（不需要選數量，選單選的就是明確的某一件）──
+  if (entry.kind === "instance") {
+    const equipButtons: ButtonBuilder[] = [];
     const equipped = await ItemService.getEquipped(userInternalId);
-    const bySlot = ACCESSORY_SLOTS.map((slot) => equipped.find((e) => e.slot === slot)?.equipped ?? null);
-    const hasEmptySlot = bySlot.some((eq) => !eq);
 
-    if (hasEmptySlot) {
-      // 至少一欄是空的，不會有歧義，直接用自動選擇邏輯裝上去
-      equipButtons.push(
-        new ButtonBuilder()
-          .setCustomId(buildCustomId("inv_equip", ownerId, String(page), item.name))
-          .setLabel("裝備")
-          .setEmoji("🛡️")
-          .setStyle(ButtonStyle.Primary)
-      );
-    } else {
-      ACCESSORY_SLOTS.forEach((slot, i) => {
-        const eq = bySlot[i]!;
+    if (entry.equippedSlot === null) {
+      const bySlot = ACCESSORY_SLOTS.map((slot) => equipped.find((e) => e.slot === slot)?.equipped ?? null);
+      const accessorySlotsFull = item.type === "accessory" && bySlot.every((eq) => eq !== null);
+
+      if (accessorySlotsFull) {
+        // 飾品三欄都滿時不能悶著頭自動選一欄頂掉，要讓玩家自己指定換哪一欄
+        ACCESSORY_SLOTS.forEach((slot, i) => {
+          const eq = bySlot[i]!;
+          equipButtons.push(
+            new ButtonBuilder()
+              .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), entry.instanceId, slot))
+              .setLabel(`換掉「${eq.item.name}${enhanceSuffix(eq.enhanceLevel)}」`.slice(0, 80))
+              .setEmoji("🛡️")
+              .setStyle(ButtonStyle.Primary)
+          );
+        });
+      } else {
         equipButtons.push(
           new ButtonBuilder()
-            .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), item.name, slot))
-            .setLabel(`換掉「${eq.item.name}」`)
+            .setCustomId(buildCustomId("inv_equip", ownerId, String(page), entry.instanceId))
+            .setLabel("裝備")
             .setEmoji("🛡️")
             .setStyle(ButtonStyle.Primary)
         );
-      });
+      }
     }
+
+    if (equipButtons.length > 0) {
+      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...equipButtons));
+    }
+
+    const sellPrice = ItemService.getSellPricePerUnit(item);
+    const isEquipped = entry.equippedSlot !== null;
+    rows.push(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(buildCustomId("inv_sell_instance", ownerId, String(page), entry.instanceId))
+          .setLabel(
+            isEquipped
+              ? "賣掉（裝備中，請先換裝）"
+              : `賣掉這件（${Math.round(sellPrice * (1 + entry.enhanceLevel * 0.1))} 金幣）`
+          )
+          .setEmoji("💰")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(isEquipped)
+      )
+    );
+    return rows;
   }
 
-  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-  if (equipButtons.length > 0) {
-    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...equipButtons));
-  }
-
+  // ── 可堆疊道具：藥水有使用數量列，全部都有賣出數量列 ──────────────
   if (item.type === "potion") {
-    const inventory = await ItemService.getInventory(userInternalId);
-    const owned = inventory.find((row) => row.itemId === item.id)?.quantity ?? 1;
-    const useMaxQty = Math.max(1, Math.min(99, owned));
+    const useMaxQty = Math.max(1, Math.min(99, entry.quantity));
     const useQty = Math.min(Math.max(1, options.useQty ?? 1), useMaxQty);
     rows.push(buildUseQuantityRow(ownerId, page, item.name, useQty, useMaxQty));
   }
 
-  // 賣出的數量上限是「實際賣得動」的數量（裝備中的排除在外）；全部都裝備中時沒有東西可以調整數量，改顯示停用的單一按鈕
-  const sellableQty = await ItemService.getSellableQuantity(userInternalId, item.id);
+  const sellableQty = entry.quantity;
   const unitPrice = ItemService.getSellPricePerUnit(item);
-  if (sellableQty > 0) {
-    const sellQty = Math.min(Math.max(1, options.sellQty ?? sellableQty), sellableQty);
-    rows.push(buildSellQuantityRow(ownerId, page, item.name, sellQty, unitPrice, sellableQty));
-  } else {
-    rows.push(
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(buildCustomId("inv_sell", ownerId, String(page), item.name, "0"))
-          .setLabel("全部賣掉（裝備中，無法賣）")
-          .setEmoji("💰")
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true)
-      )
-    );
-  }
+  const sellQty = Math.min(Math.max(1, options.sellQty ?? sellableQty), sellableQty);
+  rows.push(buildSellQuantityRow(ownerId, page, item.name, sellQty, unitPrice, sellableQty));
 
   return rows;
 }
@@ -386,7 +393,7 @@ async function renderItemSelection(
   interaction: StringSelectMenuInteraction | ButtonInteraction,
   ownerId: string,
   page: number,
-  itemName: string,
+  selectedKey: string,
   options: { useQty?: number; sellQty?: number } = {}
 ) {
   const view = await buildInventoryView(
@@ -395,13 +402,15 @@ async function renderItemSelection(
     page,
     interaction.user.username,
     interaction.user.displayAvatarURL(),
-    itemName
+    selectedKey
   );
-  const item = await ItemService.findItemByName(itemName);
-  if (item) {
-    const user = await RPGService.findUserByDiscordId(interaction.user.id);
-    if (user) {
-      view.components.push(...(await buildItemActionRows(user.id, ownerId, page, item, options)));
+  const user = await RPGService.findUserByDiscordId(interaction.user.id);
+  if (user) {
+    // 選單傳回來的 key：裝備是實體 id、可堆疊道具是名稱，用同一份背包資料反查是哪一筆
+    const entries = await ItemService.getInventory(user.id);
+    const entry = entries.find((e) => entryKey(e) === selectedKey);
+    if (entry) {
+      view.components.push(...(await buildItemActionRows(user.id, ownerId, page, entry, options)));
     }
   }
   await interaction.editReply(view);
@@ -411,11 +420,11 @@ export async function handleInventorySelect(interaction: StringSelectMenuInterac
   const { ownerId, args } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
   const page = parseInt(args[0], 10);
-  const itemName = interaction.values[0];
+  const selectedKey = interaction.values[0];
 
   await interaction.deferUpdate();
   try {
-    await renderItemSelection(interaction, ownerId, page, itemName);
+    await renderItemSelection(interaction, ownerId, page, selectedKey);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await interaction.editReply({ content: message, embeds: [], components: [] });
@@ -476,13 +485,14 @@ function parsePageAndItemName(args: string[]): { page: number; itemName: string 
 export async function handleInventoryEquipButton(interaction: ButtonInteraction) {
   const { ownerId, args } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
-  const { page, itemName } = parsePageAndItemName(args);
+  const [pageStr, instanceId] = args;
+  const page = parseInt(pageStr, 10);
 
   await interaction.deferUpdate();
   try {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
-    await ItemService.equipItem(user.id, itemName);
+    await ItemService.equipItem(user.id, instanceId);
     await refreshInventoryView(interaction, ownerId, page);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -494,14 +504,14 @@ export async function handleInventoryEquipButton(interaction: ButtonInteraction)
 export async function handleInventoryEquipSlotButton(interaction: ButtonInteraction) {
   const { ownerId, args } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
-  const [pageStr, itemName, slot] = args;
+  const [pageStr, instanceId, slot] = args;
   const page = parseInt(pageStr, 10);
 
   await interaction.deferUpdate();
   try {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
-    await ItemService.equipItem(user.id, itemName, slot as EquipSlot);
+    await ItemService.equipItem(user.id, instanceId, slot as EquipSlot);
     await refreshInventoryView(interaction, ownerId, page);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -556,6 +566,30 @@ export async function handleInventorySellButton(interaction: ButtonInteraction) 
     await refreshInventoryView(interaction, ownerId, page);
     await interaction.followUp({
       content: `💰 賣掉「${item.name}」x${amount}，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`,
+      flags: MessageFlags.Ephemeral,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.followUp({ content: `販賣失敗：${message}`, flags: MessageFlags.Ephemeral });
+  }
+}
+
+// interactionCreate.ts 會把 "inv_sell_instance:*" 的按鈕點擊導到這裡。
+// 裝備一件一列，選單選中的就是明確的那一件，所以不像可堆疊道具還要再選數量
+export async function handleInventorySellInstanceButton(interaction: ButtonInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+  const [pageStr, instanceId] = args;
+  const page = parseInt(pageStr, 10);
+
+  await interaction.deferUpdate();
+  try {
+    const user = await RPGService.findUserByDiscordId(interaction.user.id);
+    if (!user) throw new Error("找不到你的角色資料");
+    const { item, enhanceLevel, sellPrice, goldAfter } = await ItemService.sellInstance(user.id, instanceId);
+    await refreshInventoryView(interaction, ownerId, page);
+    await interaction.followUp({
+      content: `💰 賣掉「${item.name}${enhanceSuffix(enhanceLevel)}」，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`,
       flags: MessageFlags.Ephemeral,
     });
   } catch (error) {
