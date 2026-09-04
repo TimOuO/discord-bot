@@ -1,4 +1,4 @@
-import { REST, Routes } from "discord.js";
+import { REST, Routes, RESTPostAPIChatInputApplicationCommandsJSONBody } from "discord.js";
 import { config } from "./config";
 import { loadCommandModules } from "./commands";
 
@@ -12,7 +12,7 @@ async function getGuildName(rest: REST, guildId: string): Promise<string> {
 }
 
 async function deployCommands() {
-  const commands: any[] = [];
+  const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [];
 
   for (const { file, command } of loadCommandModules()) {
     if (command && "data" in command && "execute" in command) {

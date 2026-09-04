@@ -86,4 +86,4 @@ export default {
 
     return interaction.editReply({ embeds: [embed] });
   },
-};
+} satisfies Command;

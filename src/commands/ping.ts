@@ -20,4 +20,4 @@ export default {
       console.error("Ping 命令執行錯誤:", error);
     }
   },
-};
+} satisfies Command;

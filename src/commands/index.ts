@@ -1,6 +1,6 @@
 import {
-  SlashCommandBuilder,
-  CommandInteraction,
+  SharedSlashCommand,
+  ChatInputCommandInteraction,
   AutocompleteInteraction,
 } from "discord.js";
 import fs from "fs";
@@ -8,9 +8,17 @@ import path from "path";
 import { ExtendedClient } from "../structures/ExtendedClient";
 
 export interface Command {
-  data: SlashCommandBuilder | any;
-  execute: (interaction: CommandInteraction) => Promise<void>;
-  autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
+  // 原本寫成 `SlashCommandBuilder | any`，但只要 union 裡有 any，整個型別就塌成 any，
+  // 前面那個 SlashCommandBuilder 完全沒有作用。會加 any 是因為指令一旦串了 .addStringOption()
+  // 或 .addSubcommand()，回傳的型別就不再是 SlashCommandBuilder，而是
+  // SlashCommandOptionsOnlyBuilder / SlashCommandSubcommandsOnlyBuilder。
+  // SharedSlashCommand 是這三者共同的介面（帶 name 跟 toJSON()），剛好就是這裡真正需要的契約
+  data: SharedSlashCommand;
+  // 這裡原本寫 CommandInteraction，但那個型別涵蓋右鍵選單指令（沒有 .options），
+  // 跟所有實作實際需要的 ChatInputCommandInteraction 不相容——之所以一直沒爆，
+  // 是因為載入時用 `as Command` 硬轉，等於從來沒有真的檢查過
+  execute: (interaction: ChatInputCommandInteraction) => Promise<unknown>;
+  autocomplete?: (interaction: AutocompleteInteraction) => Promise<unknown>;
 }
 
 function isLoadableModule(file: string): boolean {

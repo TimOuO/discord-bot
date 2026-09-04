@@ -104,4 +104,4 @@ export default {
       await reply.resource?.message?.react("⬇️");
     }
   },
-};
+} satisfies Command;

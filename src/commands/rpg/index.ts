@@ -176,4 +176,4 @@ export default {
     if (subcommand === "craft") return craftAutocomplete(interaction);
     return interaction.respond([]);
   },
-};
+} satisfies Command;

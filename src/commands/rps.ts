@@ -11,4 +11,4 @@ export default {
     const hand = HANDS[randomInt(0, HANDS.length)];
     await interaction.reply(hand);
   },
-};
+} satisfies Command;
