@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction } from "discord.js";
-import { randomInt } from "crypto";
+import { randomInt } from "../utils/random";
+import type { Command } from "./index";
 
 const HANDS = ["✌️", "✊", "🖐️"];
 

@@ -1,5 +1,5 @@
 import { Message } from "discord.js";
-import { randomInt } from "crypto";
+import { randomInt } from "../utils/random";
 import { config } from "../config";
 import { ExtendedClient } from "../structures/ExtendedClient";
 

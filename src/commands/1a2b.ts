@@ -3,7 +3,8 @@ import {
   ChatInputCommandInteraction,
   MessageFlags,
 } from "discord.js";
-import { randomInt } from "crypto";
+import { randomInt } from "../utils/random";
+import type { Command } from "./index";
 
 interface GuessRecord {
   guess: number;

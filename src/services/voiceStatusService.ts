@@ -1,5 +1,6 @@
 import { REST, Routes } from "discord.js";
-import { randomInt } from "crypto";
+import { randomInt } from "../utils/random";
+import { getLocalDateString } from "../utils/datetime";
 import { config } from "../config";
 
 // 每個詞庫名稱對應一組候選詞，每天隨機挑一句
@@ -29,17 +30,6 @@ const PHRASE_POOLS: Record<string, string[]> = {
     "呼呼一起睡 💤",
   ],
 };
-
-const TIMEZONE = "Asia/Taipei";
-
-function getLocalDateString(date: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
 
 let lastRotatedDate: string | null = null;
 

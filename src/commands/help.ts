@@ -8,6 +8,7 @@ import {
   PermissionFlagsBits,
 } from "discord.js";
 import { ExtendedClient } from "../structures/ExtendedClient";
+import type { Command } from "./index";
 
 interface CommandOptionJSON {
   type: ApplicationCommandOptionType;

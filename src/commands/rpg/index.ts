@@ -37,6 +37,7 @@ import {
   handleShopQtyButton,
   handleShopBuyButton,
 } from "./shop";
+import type { Command } from "../index";
 
 // 按鈕/選單 handler、buildDailyRewardEmbed 給 interactionCreate.ts、voiceStateUpdate.ts 用
 export {

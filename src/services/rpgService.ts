@@ -1,5 +1,6 @@
-import { Item, User } from "../generated/prisma";
-import { randomInt } from "crypto";
+import { Item, Prisma, User } from "../generated/prisma";
+import { randomInt, randomChance, randomPercentChance } from "../utils/random";
+import { getLocalDateString } from "../utils/datetime";
 import prisma from "./dbService";
 import { ItemService } from "./itemService";
 import type { EffectiveStats } from "./itemService";
@@ -75,14 +76,14 @@ function simulateCombat(
     rounds++;
     let userDamage = calculateDamage(effectiveStats.attack, enemy.defense);
     // 爆擊：裝備 critRate 加成的機率讓這回合傷害翻倍
-    if (randomInt(0, 100) < effectiveStats.critRate) {
+    if (randomPercentChance(effectiveStats.critRate)) {
       userDamage *= 2;
     }
     currentEnemyHealth -= userDamage;
 
     if (currentEnemyHealth > 0) {
       // 閃避：裝備 dodgeRate 加成的機率讓這回合完全不受傷
-      const dodged = randomInt(0, 100) < effectiveStats.dodgeRate;
+      const dodged = randomPercentChance(effectiveStats.dodgeRate);
       if (!dodged) {
         const enemyDamage = calculateDamage(enemy.attack, effectiveStats.defense);
         userHealth -= enemyDamage;
@@ -178,7 +179,7 @@ export interface RareLoot {
 // 混合 FISH_TABLE/GATHER_TABLE，兩個表的稀有度順序一樣固定是 common/uncommon/rare/epic/legendary，
 // slice(2) 就是拿掉前兩階只留 rare 以上
 async function grantRareLoot(userId: string): Promise<RareLoot | null> {
-  const table = Math.random() < 0.5 ? FISH_TABLE : GATHER_TABLE;
+  const table = randomChance(0.5) ? FISH_TABLE : GATHER_TABLE;
   const lootName = pickFromWeightedTiers(table.slice(2));
   const item = await ItemService.findItemByName(lootName);
   if (!item) return null;
@@ -204,14 +205,14 @@ async function rollBattleBonusEvent(
   let goldGained = 0;
   let finalHealth = currentHealth;
 
-  if (Math.random() < BATTLE_LOOT_EVENT_CHANCE) {
-    if (Math.random() < 0.5) {
+  if (randomChance(BATTLE_LOOT_EVENT_CHANCE)) {
+    if (randomChance(0.5)) {
       const amount = Math.round((20 + user.level * 5 + randomInt(0, 10)) * (1 + effectiveStats.goldBonus / 100));
       goldGained += amount;
       events.push({ type: "gold", amount });
     } else {
       const lootName =
-        Math.random() < 0.5 ? pickFromWeightedTiers(FISH_TABLE) : pickFromWeightedTiers(GATHER_TABLE);
+        randomChance(0.5) ? pickFromWeightedTiers(FISH_TABLE) : pickFromWeightedTiers(GATHER_TABLE);
       const item = await ItemService.findItemByName(lootName);
       if (item) {
         const itemXpGained = Math.round(randomInt(2, 6) * (1 + effectiveStats.xpBonus / 100));
@@ -226,7 +227,7 @@ async function rollBattleBonusEvent(
     }
   }
 
-  if (Math.random() < BATTLE_ELITE_EVENT_CHANCE) {
+  if (randomChance(BATTLE_ELITE_EVENT_CHANCE)) {
     const eliteLevel = Math.max(1, user.level + 2 + randomInt(0, 3));
     const enemy = rollEnemy(eliteLevel, ELITE_ENEMY_TYPES);
     // 菁英怪比一般敵人明顯更強，不是隨便就能打贏的額外戰鬥
@@ -262,17 +263,6 @@ async function rollBattleBonusEvent(
   }
 
   return { events, xpGained, goldGained, finalHealth };
-}
-
-const DAILY_RESET_TIMEZONE = "Asia/Taipei";
-
-function getLocalDateString(date: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: DAILY_RESET_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
 }
 
 // 每日重置的邊界是台北時間 00:00，固定用 +08:00 換算，跟主機所在時區無關
@@ -801,7 +791,7 @@ export class RPGService {
       };
     }
 
-    if (Math.random() < EMPTY_CATCH_CHANCE) {
+    if (randomChance(EMPTY_CATCH_CHANCE)) {
       // lastFish 已經在上面搶冷卻時寫過了，不用再更新一次
       return { status: "empty", message: EMPTY_CATCH_MESSAGES[randomInt(0, EMPTY_CATCH_MESSAGES.length)] };
     }
@@ -852,7 +842,7 @@ export class RPGService {
       };
     }
 
-    if (Math.random() < GATHER_EMPTY_CHANCE) {
+    if (randomChance(GATHER_EMPTY_CHANCE)) {
       // lastGather 已經在上面搶冷卻時寫過了，不用再更新一次
       return {
         status: "empty",

@@ -3,20 +3,11 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { config } from "../config";
+import { getLocalDateString } from "../utils/datetime";
 
 const DB_PATH = (process.env.DATABASE_URL ?? "file:./prisma/dev.db").replace(/^file:/, "");
 const BACKUP_DIR = path.join(path.dirname(DB_PATH), "backups");
 const RETENTION_DAYS = 7;
-const TIMEZONE = "Asia/Taipei";
-
-function getLocalDateString(date: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
 
 // 只刪過期的備份檔，不會動到當天剛產生的那份
 function pruneOldBackups(): void {
