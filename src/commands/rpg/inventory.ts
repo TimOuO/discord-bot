@@ -17,6 +17,10 @@ import {
   TYPE_LABELS,
   EQUIPPABLE_TYPES,
   ACCESSORY_SLOTS,
+  MAX_ENHANCE_LEVEL,
+  enhanceCost,
+  enhanceSuccessRate,
+  enhanceFailureDropsLevel,
   formatEffectValue,
 } from "../../services/itemService";
 import type { EquipSlot, InventoryEntry } from "../../services/itemService";
@@ -311,6 +315,22 @@ async function buildItemActionRows(
       }
     }
 
+    // 強化按鈕直接把成功率、費用、失敗後果標在上面，不用點下去才知道自己在賭什麼
+    const targetLevel = entry.enhanceLevel + 1;
+    if (targetLevel <= MAX_ENHANCE_LEVEL) {
+      const cost = enhanceCost(item);
+      const rate = Math.round(enhanceSuccessRate(targetLevel) * 100);
+      // 失敗會退級的等級要先講清楚，不能等玩家賭輸了才發現
+      const riskNote = enhanceFailureDropsLevel(targetLevel) ? "・失敗退級" : "";
+      equipButtons.push(
+        new ButtonBuilder()
+          .setCustomId(buildCustomId("inv_enhance", ownerId, String(page), entry.instanceId))
+          .setLabel(`強化 +${targetLevel}（${rate}%・${cost} 金幣${riskNote}）`.slice(0, 80))
+          .setEmoji("⚒️")
+          .setStyle(ButtonStyle.Success)
+      );
+    }
+
     if (equipButtons.length > 0) {
       rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...equipButtons));
     }
@@ -595,5 +615,36 @@ export async function handleInventorySellInstanceButton(interaction: ButtonInter
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await interaction.followUp({ content: `販賣失敗：${message}`, flags: MessageFlags.Ephemeral });
+  }
+}
+
+// interactionCreate.ts 會把 "inv_enhance:*" 的按鈕點擊導到這裡。
+// 成功率/費用/失敗後果在按鈕上就標出來了，這裡直接執行、把結果回報給玩家
+export async function handleInventoryEnhanceButton(interaction: ButtonInteraction) {
+  const { ownerId, args } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+  const [pageStr, instanceId] = args;
+  const page = parseInt(pageStr, 10);
+
+  await interaction.deferUpdate();
+  try {
+    const user = await RPGService.findUserByDiscordId(interaction.user.id);
+    if (!user) throw new Error("找不到你的角色資料");
+
+    const result = await ItemService.enhanceInstance(user.id, instanceId);
+    // 強化完直接回到選中該裝備的畫面，可以連續強化不用重選（等級變了，按鈕上的成功率/費用會跟著更新）
+    await renderItemSelection(interaction, ownerId, page, instanceId);
+
+    const name = `「${result.item.name}」`;
+    const message = result.success
+      ? `⚒️ 強化成功！${name} 現在是 **+${result.newLevel}**（花費 ${result.cost} 金幣，目前 ${result.goldAfter} 金幣）`
+      : result.droppedLevel
+        ? `💥 強化失敗，${name} 退回 **+${result.newLevel}**（花費 ${result.cost} 金幣，目前 ${result.goldAfter} 金幣）`
+        : `💥 強化失敗，${name} 維持 **+${result.newLevel}**，裝備沒有損失（花費 ${result.cost} 金幣，目前 ${result.goldAfter} 金幣）`;
+
+    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.followUp({ content: `強化失敗：${message}`, flags: MessageFlags.Ephemeral });
   }
 }

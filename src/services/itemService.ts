@@ -1,4 +1,5 @@
 import { Item, Prisma } from "../generated/prisma";
+import { randomChance } from "../utils/random";
 import prisma from "./dbService";
 
 export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2", "accessory3"] as const;
@@ -116,6 +117,48 @@ export const MAX_ENHANCE_LEVEL = 10;
 
 export function enhancedValue(baseValue: number, enhanceLevel: number): number {
   return Math.round(baseValue * (1 + enhanceLevel * ENHANCE_BONUS_PER_LEVEL));
+}
+
+// 強化到第 N 級的成功率。前段幾乎穩過、後段才開始有賭的成分，
+// 因為 +5（裝備數值 ×1.5）就足以解決「裝備固定值追不上敵人線性成長」的問題（見 PRD 第 15 節的模擬），
+// +6 之後純粹是給願意投入的人的選配追求，不是正常遊玩的門檻
+const ENHANCE_SUCCESS_RATE: Record<number, number> = {
+  1: 0.95, 2: 0.9, 3: 0.85, 4: 0.8, 5: 0.75,
+  6: 0.6, 7: 0.5, 8: 0.4, 9: 0.35, 10: 0.3,
+};
+
+// 這一級（含）以上，失敗會退一級；以下失敗只損失費用、等級原地不動。
+// 刻意不設「摧毀裝備」——花好幾小時鍛造出來的神話裝一發沒了，對這個規模的伺服器只會勸退
+const ENHANCE_LEVEL_LOSS_FROM = 6;
+
+// 每次強化的費用固定是道具價格的 10%：貴重裝備強化成本自然更高，
+// 但新手也能在便宜裝備上玩得起（木劍每次只要 5 金幣）
+const ENHANCE_COST_RATIO = 0.1;
+
+export function enhanceSuccessRate(targetLevel: number): number {
+  return ENHANCE_SUCCESS_RATE[targetLevel] ?? 0;
+}
+
+export function enhanceCost(item: Item): number {
+  return Math.max(1, Math.round(item.cost * ENHANCE_COST_RATIO));
+}
+
+/** 強化失敗時會不會掉一級（+6 以上才會） */
+export function enhanceFailureDropsLevel(targetLevel: number): boolean {
+  return targetLevel >= ENHANCE_LEVEL_LOSS_FROM;
+}
+
+export interface EnhanceResult {
+  item: Item;
+  success: boolean;
+  /** 強化前的等級 */
+  previousLevel: number;
+  /** 強化後的等級（成功 +1、失敗可能 -1 或不變） */
+  newLevel: number;
+  cost: number;
+  goldAfter: number;
+  /** 這次是不是失敗且掉了一級 */
+  droppedLevel: boolean;
 }
 
 /** 一件裝備實體：玩家擁有的「這一件」武器/防具/飾品 */
@@ -580,6 +623,59 @@ export class ItemService {
       sellPrice,
       goldAfter: updatedUser.gold,
     };
+  }
+
+  /**
+   * 強化指定的那一件裝備。成功 +1 級；失敗只損失費用，+6 以上失敗還會退一級。
+   * 金幣的扣款用 conditional update（跟買東西一樣的手法），避免「查完錢夠、扣款前錢被花掉」的競態；
+   * 等級的更新也帶上「等級還是強化前那個值」的條件，兩邊同時按強化不會把等級推成 +2
+   */
+  static async enhanceInstance(userInternalId: string, instanceId: string): Promise<EnhanceResult> {
+    const instance = await prisma.itemInstance.findUnique({
+      where: { id: instanceId },
+      include: { item: true },
+    });
+    if (!instance || instance.userId !== userInternalId) {
+      throw new Error("找不到這件裝備，可能已經被賣掉了");
+    }
+
+    const previousLevel = instance.enhanceLevel;
+    const targetLevel = previousLevel + 1;
+    if (targetLevel > MAX_ENHANCE_LEVEL) {
+      throw new Error(`「${instance.item.name}」已經是 +${MAX_ENHANCE_LEVEL}，沒辦法再強化了`);
+    }
+
+    const cost = enhanceCost(instance.item);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const paid = await tx.user.updateMany({
+        where: { id: userInternalId, gold: { gte: cost } },
+        data: { gold: { decrement: cost } },
+      });
+      if (paid.count === 0) {
+        const user = await tx.user.findUniqueOrThrow({ where: { id: userInternalId } });
+        throw new Error(`金幣不夠，強化一次要 ${cost} 金幣，你只有 ${user.gold} 金幣`);
+      }
+
+      const success = randomChance(enhanceSuccessRate(targetLevel));
+      const droppedLevel = !success && enhanceFailureDropsLevel(targetLevel);
+      const newLevel = success ? targetLevel : droppedLevel ? previousLevel - 1 : previousLevel;
+
+      if (newLevel !== previousLevel) {
+        const updated = await tx.itemInstance.updateMany({
+          where: { id: instanceId, enhanceLevel: previousLevel },
+          data: { enhanceLevel: newLevel },
+        });
+        if (updated.count === 0) {
+          throw new Error("這件裝備的狀態在強化過程中被改變了，請重新查詢後再試");
+        }
+      }
+
+      const user = await tx.user.findUniqueOrThrow({ where: { id: userInternalId } });
+      return { success, newLevel, droppedLevel, goldAfter: user.gold };
+    });
+
+    return { item: instance.item, previousLevel, cost, ...result };
   }
 
   // amount 是玩家「最多」想用幾個；實際消耗會封頂在「回滿血量所需的數量」，

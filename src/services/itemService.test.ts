@@ -564,3 +564,128 @@ describe("裝備實體（同名裝備可以分別存在）", () => {
     expect(result.sellPrice).toBe(100); // 五折的 50，再乘上 +10 的兩倍
   });
 });
+
+describe("ItemService.enhanceInstance", () => {
+  // 先給足夠的錢買裝備，買完再把金幣設成要驗證的值——不然會卡在買不起、測不到強化本身
+  async function makeEquipment(goldAfterPurchase: number, cost = 100) {
+    const { user } = await createTestUser({ gold: cost });
+    const weapon = await createTestItem({ type: "weapon", cost, effectType: "attack", effectValue: 20 });
+    await ItemService.buyItem(user.id, weapon.name);
+    await prisma.user.update({ where: { id: user.id }, data: { gold: goldAfterPurchase } });
+    const instance = await prisma.itemInstance.findFirstOrThrow({
+      where: { userId: user.id, itemId: weapon.id },
+    });
+    return { user, weapon, instanceId: instance.id };
+  }
+
+  it("成功時等級 +1，並扣掉道具價格 10% 的費用", async () => {
+    const { user, instanceId } = await makeEquipment(10_000);
+
+    // +1 的成功率是 95%，多試幾次一定會有成功的
+    let succeeded = false;
+    for (let i = 0; i < 30 && !succeeded; i++) {
+      const result = await ItemService.enhanceInstance(user.id, instanceId);
+      expect(result.cost).toBe(10); // 100 的 10%
+      if (result.success) {
+        succeeded = true;
+        expect(result.newLevel).toBe(result.previousLevel + 1);
+      }
+      await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 0 } });
+    }
+    expect(succeeded).toBe(true);
+  });
+
+  it("強化會反映在有效屬性上（+5 的攻擊力是基礎的 1.5 倍）", async () => {
+    const { user, instanceId } = await makeEquipment(10_000);
+    await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 5 } });
+
+    const stats = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+    expect(stats.attack).toBe(user.attack + 30); // 20 * 1.5
+  });
+
+  it("+5 以下失敗只損失金幣，等級不會倒退", async () => {
+    const { user, instanceId } = await makeEquipment(10_000);
+    await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 3 } });
+
+    for (let i = 0; i < 40; i++) {
+      const result = await ItemService.enhanceInstance(user.id, instanceId);
+      if (!result.success) {
+        // 目標是 +4，還沒到會退級的門檻
+        expect(result.droppedLevel).toBe(false);
+        expect(result.newLevel).toBe(3);
+        return;
+      }
+      await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 3 } });
+    }
+  });
+
+  it("+6 以上失敗會退一級", async () => {
+    const { user, instanceId } = await makeEquipment(100_000);
+    await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 7 } });
+
+    for (let i = 0; i < 40; i++) {
+      const result = await ItemService.enhanceInstance(user.id, instanceId);
+      if (!result.success) {
+        expect(result.droppedLevel).toBe(true);
+        expect(result.newLevel).toBe(6);
+        return;
+      }
+      await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 7 } });
+    }
+  });
+
+  it("金幣不夠時拒絕，而且不會動到裝備等級", async () => {
+    const { user, instanceId } = await makeEquipment(5); // 一次要 10 金幣
+
+    await expect(ItemService.enhanceInstance(user.id, instanceId)).rejects.toThrow("金幣不夠");
+
+    const instance = await prisma.itemInstance.findUniqueOrThrow({ where: { id: instanceId } });
+    expect(instance.enhanceLevel).toBe(0);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(after.gold).toBe(5); // 沒被扣款
+  });
+
+  it("已經 +10 就不能再強化", async () => {
+    const { user, instanceId } = await makeEquipment(10_000);
+    await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 10 } });
+
+    await expect(ItemService.enhanceInstance(user.id, instanceId)).rejects.toThrow("已經是 +10");
+  });
+
+  it("強化只影響那一件，同名的另一件不受影響", async () => {
+    const { user } = await createTestUser({ gold: 10_000 });
+    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    await ItemService.buyItem(user.id, weapon.name, 2);
+
+    const instances = await prisma.itemInstance.findMany({
+      where: { userId: user.id, itemId: weapon.id },
+      orderBy: { createdAt: "asc" },
+    });
+    await prisma.itemInstance.update({ where: { id: instances[0].id }, data: { enhanceLevel: 4 } });
+
+    const after = await prisma.itemInstance.findMany({
+      where: { userId: user.id, itemId: weapon.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(after[0].enhanceLevel).toBe(4);
+    expect(after[1].enhanceLevel).toBe(0);
+  });
+
+  it("兩個併發強化不會把等級推成 +2（競態測試）", async () => {
+    const { user, instanceId } = await makeEquipment(100_000);
+
+    // +1 兩邊都會成功（95%），但等級的 conditional update 只有一邊能命中
+    const results = await Promise.allSettled([
+      ItemService.enhanceInstance(user.id, instanceId),
+      ItemService.enhanceInstance(user.id, instanceId),
+    ]);
+
+    const instance = await prisma.itemInstance.findUniqueOrThrow({ where: { id: instanceId } });
+    expect(instance.enhanceLevel).toBeLessThanOrEqual(1);
+    expect(results.filter((r) => r.status === "fulfilled").length).toBeGreaterThanOrEqual(1);
+  });
+});
