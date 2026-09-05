@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { ItemService } from "./itemService";
+import { ItemService, enhanceMaterialRequirement } from "./itemService";
+import type { Item } from "../generated/prisma";
 import { createTestUser, createTestItem, ownedCount } from "../../test/helpers";
 import prisma from "./dbService";
 
@@ -627,6 +628,10 @@ describe("ItemService.enhanceInstance", () => {
     const { user, instanceId } = await makeEquipment(100_000);
     await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 7 } });
 
+    // +8 除了金幣還要付材料（普通裝備吃普通材料，一次 2 個），這裡驗的是退級不是材料，先備足
+    const material = await createTestItem({ type: "material", rarity: "common", cost: 10, effectType: "none" });
+    await prisma.inventory.create({ data: { userId: user.id, itemId: material.id, quantity: 200 } });
+
     for (let i = 0; i < 40; i++) {
       const result = await ItemService.enhanceInstance(user.id, instanceId);
       if (!result.success) {
@@ -687,5 +692,156 @@ describe("ItemService.enhanceInstance", () => {
     const instance = await prisma.itemInstance.findUniqueOrThrow({ where: { id: instanceId } });
     expect(instance.enhanceLevel).toBeLessThanOrEqual(1);
     expect(results.filter((r) => r.status === "fulfilled").length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("enhanceMaterialRequirement", () => {
+  const asItem = (rarity: string) => ({ rarity }) as Item;
+
+  it("+5 以下只收金幣，不需要材料", () => {
+    for (const level of [1, 2, 3, 4, 5]) {
+      expect(enhanceMaterialRequirement(asItem("mythic"), level)).toBeNull();
+    }
+  });
+
+  it("神話裝備 +6~+8 吃史詩材料、+9~+10 吃傳說材料", () => {
+    const mythic = asItem("mythic");
+    expect(enhanceMaterialRequirement(mythic, 6)).toEqual({ rarity: "epic", quantity: 1 });
+    expect(enhanceMaterialRequirement(mythic, 7)).toEqual({ rarity: "epic", quantity: 1 });
+    expect(enhanceMaterialRequirement(mythic, 8)).toEqual({ rarity: "epic", quantity: 2 });
+    expect(enhanceMaterialRequirement(mythic, 9)).toEqual({ rarity: "legendary", quantity: 1 });
+    expect(enhanceMaterialRequirement(mythic, 10)).toEqual({ rarity: "legendary", quantity: 1 });
+  });
+
+  it("材料階級跟著裝備稀有度縮放，低階裝備不會被史詩材料擋住", () => {
+    // 木劍（普通）強化只吃樹枝那一階的材料，新手不會卡在拿不到史詩材料
+    expect(enhanceMaterialRequirement(asItem("common"), 7)).toEqual({ rarity: "common", quantity: 1 });
+    expect(enhanceMaterialRequirement(asItem("common"), 10)).toEqual({ rarity: "uncommon", quantity: 1 });
+    expect(enhanceMaterialRequirement(asItem("rare"), 7)).toEqual({ rarity: "uncommon", quantity: 1 });
+    expect(enhanceMaterialRequirement(asItem("epic"), 10)).toEqual({ rarity: "epic", quantity: 1 });
+  });
+});
+
+describe("ItemService.enhanceInstance 的材料成本", () => {
+  // 神話裝備：+6~+8 吃史詩材料、+9~+10 吃傳說材料
+  async function makeMythicAt(enhanceLevel: number, gold = 100_000) {
+    const { user } = await createTestUser({ gold: 1_000_000 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      rarity: "mythic",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 20,
+    });
+    await ItemService.buyItem(user.id, weapon.name);
+    await prisma.user.update({ where: { id: user.id }, data: { gold } });
+    const instance = await prisma.itemInstance.findFirstOrThrow({
+      where: { userId: user.id, itemId: weapon.id },
+    });
+    await prisma.itemInstance.update({ where: { id: instance.id }, data: { enhanceLevel } });
+    return { user, weapon, instanceId: instance.id };
+  }
+
+  async function giveMaterial(userInternalId: string, rarity: string, quantity: number, type = "material") {
+    const material = await createTestItem({ type, rarity, cost: 200, effectType: "none", effectValue: 0 });
+    await prisma.inventory.create({ data: { userId: userInternalId, itemId: material.id, quantity } });
+    return material;
+  }
+
+  it("材料不夠時擋下強化，金幣和裝備等級都不動", async () => {
+    const { user, instanceId } = await makeMythicAt(5);
+
+    await expect(ItemService.enhanceInstance(user.id, instanceId)).rejects.toThrow("材料不夠");
+
+    const instance = await prisma.itemInstance.findUniqueOrThrow({ where: { id: instanceId } });
+    expect(instance.enhanceLevel).toBe(5);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(after.gold).toBe(100_000);
+  });
+
+  it("強化 +6 會扣掉一個史詩材料，並回報扣了哪一種", async () => {
+    const { user, instanceId } = await makeMythicAt(5);
+    const material = await giveMaterial(user.id, "epic", 5);
+
+    const result = await ItemService.enhanceInstance(user.id, instanceId);
+
+    expect(result.materialUsed).toEqual({ name: material.name, quantity: 1, remaining: 4 });
+    expect(await ownedCount(user.id, material.id)).toBe(4);
+  });
+
+  it("同稀有度有多種材料時，扣庫存最多的那一種", async () => {
+    const { user, instanceId } = await makeMythicAt(5);
+    const few = await giveMaterial(user.id, "epic", 2);
+    const many = await giveMaterial(user.id, "epic", 9);
+
+    await ItemService.enhanceInstance(user.id, instanceId);
+
+    expect(await ownedCount(user.id, many.id)).toBe(8);
+    expect(await ownedCount(user.id, few.id)).toBe(2);
+  });
+
+  it("+5 以下不收材料，沒有任何材料也強化得動", async () => {
+    const { user, instanceId } = await makeMythicAt(3);
+
+    const result = await ItemService.enhanceInstance(user.id, instanceId);
+
+    expect(result.materialUsed).toBeNull();
+  });
+  it("藥水不會被當成強化材料燒掉", async () => {
+    const { user, instanceId } = await makeMythicAt(5);
+    // 聖光藥水／極品生命藥水那一類：稀有度對得上，但型別是 potion。
+    // 庫存還刻意給得比真材料多，「扣庫存最多的」規則沒有型別過濾的話會第一個燒到它
+    const potion = await giveMaterial(user.id, "epic", 30, "potion");
+    const material = await giveMaterial(user.id, "epic", 2);
+
+    await ItemService.enhanceInstance(user.id, instanceId);
+
+    expect(await ownedCount(user.id, potion.id)).toBe(30);
+    expect(await ownedCount(user.id, material.id)).toBe(1);
+  });
+
+  it("強化失敗一樣會扣材料（跟金幣同一套規則）", async () => {
+    const { user, instanceId } = await makeMythicAt(9); // +10 成功率只有 30%
+    const material = await giveMaterial(user.id, "legendary", 40);
+
+    for (let i = 0; i < 40; i++) {
+      const result = await ItemService.enhanceInstance(user.id, instanceId);
+      if (!result.success) {
+        expect(result.materialUsed).not.toBeNull();
+        expect(await ownedCount(user.id, material.id)).toBe(40 - (i + 1));
+        return;
+      }
+      await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 9 } });
+    }
+    throw new Error("40 次全部成功，以 30% 成功率來說機率上不可能");
+  });
+
+  it("按鈕用的材料狀態：回報會扣哪一種、手上有幾個", async () => {
+    const { user, weapon } = await makeMythicAt(5);
+    await giveMaterial(user.id, "epic", 3);
+    const many = await giveMaterial(user.id, "epic", 8);
+
+    const status = await ItemService.getEnhanceMaterialStatus(user.id, weapon, 6);
+
+    expect(status).toEqual({ requirement: { rarity: "epic", quantity: 1 }, name: many.name, owned: 8 });
+  });
+
+  it("一種材料都沒有時 name 是 null，讓按鈕改用中文的稀有度通稱顯示", async () => {
+    const { user, weapon } = await makeMythicAt(5);
+    await giveMaterial(user.id, "epic", 30, "potion"); // 藥水不算材料
+
+    const status = await ItemService.getEnhanceMaterialStatus(user.id, weapon, 6);
+
+    expect(status).toEqual({ requirement: { rarity: "epic", quantity: 1 }, name: null, owned: 0 });
+  });
+
+  it("+8 一次吃兩個材料", async () => {
+    const { user, instanceId } = await makeMythicAt(7);
+    const material = await giveMaterial(user.id, "epic", 5);
+
+    const result = await ItemService.enhanceInstance(user.id, instanceId);
+
+    expect(result.materialUsed?.quantity).toBe(2);
+    expect(await ownedCount(user.id, material.id)).toBe(3);
   });
 });

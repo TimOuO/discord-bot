@@ -148,6 +148,129 @@ export function enhanceFailureDropsLevel(targetLevel: number): boolean {
   return targetLevel >= ENHANCE_LEVEL_LOSS_FROM;
 }
 
+// +6 以上除了金幣還要付材料。動機是金幣對後期玩家早就不是門檻（Lv74 的玩家握著 9 萬金幣、
+// 夠買 138 次強化），而材料除了鍛造之外沒有任何出口，囤到 91 個史詩／22 個傳說放著長灰塵。
+// 收材料等於把「釣魚/採集/菁英怪/地下城」的產出接回強化這個無底洞，讓後期的瓶頸從金幣換成產出循環。
+//
+// 只認 fish / material 兩種型別——藥水也有 epic/legendary 稀有度（極品生命藥水、聖光藥水），
+// 沒有這道過濾的話「扣庫存最多的」會優先把玩家的補血藥水拿去燒掉
+export const ENHANCE_MATERIAL_TYPES: readonly string[] = ["fish", "material"];
+
+// 裝備稀有度 -> [低階材料稀有度, 高階材料稀有度]。
+// 材料階級跟著裝備縮放而不是一律收史詩，有兩個好處：新手的木劍不會卡在拿不到史詩材料，
+// 而 common/uncommon 材料（完全沒有配方在用，玩家囤了 50 幾根樹枝）也終於有了出口。
+// 想強化的本來就都是神話裝，所以主要的消耗目標仍然是史詩/傳說材料
+const ENHANCE_MATERIAL_TIERS: Record<string, readonly [string, string]> = {
+  common: ["common", "uncommon"],
+  uncommon: ["common", "uncommon"],
+  rare: ["uncommon", "rare"],
+  epic: ["rare", "epic"],
+  legendary: ["rare", "epic"],
+  mythic: ["epic", "legendary"],
+};
+
+// 目標等級 -> [用低階(0)還是高階(1), 幾個]。沒列到的等級（+1~+5）不收材料。
+// 這條階梯是用 20 萬次蒙地卡羅模擬挑出來的：一件神話裝 +0→+10 平均吃掉 80 個史詩 + 13 個傳說，
+// 恰好是目前最高等玩家的整份庫存——盈餘被清空、但推得完一件
+const ENHANCE_MATERIAL_LADDER: Record<number, readonly [0 | 1, number]> = {
+  6: [0, 1],
+  7: [0, 1],
+  8: [0, 2],
+  9: [1, 1],
+  10: [1, 1],
+};
+
+export interface EnhanceMaterialRequirement {
+  rarity: string;
+  quantity: number;
+}
+
+/** 強化到第 N 級要付的材料；+5 以下只收金幣，回傳 null */
+export function enhanceMaterialRequirement(
+  item: Item,
+  targetLevel: number
+): EnhanceMaterialRequirement | null {
+  const ladder = ENHANCE_MATERIAL_LADDER[targetLevel];
+  if (!ladder) return null;
+
+  const tiers = ENHANCE_MATERIAL_TIERS[item.rarity] ?? ENHANCE_MATERIAL_TIERS.common;
+  const [tierIndex, quantity] = ladder;
+  return { rarity: tiers[tierIndex], quantity };
+}
+
+/**
+ * 從背包扣掉一次強化要付的材料，回傳實際扣了哪一種。
+ *
+ * 同稀有度有 6 種材料（3 種魚 + 3 種礦），一律挑「庫存最多的那一種」：玩家不用多按一次選單
+ * （一趟 +10 平均要按 76 次強化，多一步就是多 76 次點擊），而且挑最多的天然會避開快用完的稀缺材料。
+ * 扣減本身是 conditional update，跟賣出/購買同一套競態防護。
+ */
+// 「會被扣掉的那一種材料」的唯一查詢來源：顯示用（按鈕標籤）跟實際扣除都走這裡，
+// 免得兩邊的排序或型別過濾哪天走鐘，變成按鈕寫 A、實際扣 B
+function findEnhanceMaterials(
+  client: Prisma.TransactionClient,
+  userInternalId: string,
+  rarity: string,
+  minQuantity: number
+) {
+  return client.inventory.findMany({
+    where: {
+      userId: userInternalId,
+      quantity: { gte: minQuantity },
+      item: { rarity, type: { in: [...ENHANCE_MATERIAL_TYPES] } },
+    },
+    include: { item: true },
+    orderBy: { quantity: "desc" },
+  });
+}
+
+async function consumeEnhanceMaterial(
+  tx: Prisma.TransactionClient,
+  userInternalId: string,
+  requirement: EnhanceMaterialRequirement,
+  targetLevel: number
+): Promise<EnhanceMaterialUsed> {
+  const candidates = await findEnhanceMaterials(
+    tx,
+    userInternalId,
+    requirement.rarity,
+    requirement.quantity
+  );
+
+  const chosen = candidates[0];
+  if (!chosen) {
+    const rarityLabel = RARITY_LABELS[requirement.rarity] ?? requirement.rarity;
+    throw new Error(
+      `材料不夠，強化到 +${targetLevel} 需要 ${requirement.quantity} 個${rarityLabel}材料（魚類或礦石，藥水不算）`
+    );
+  }
+
+  const consumed = await tx.inventory.updateMany({
+    where: { id: chosen.id, quantity: { gte: requirement.quantity } },
+    data: { quantity: { decrement: requirement.quantity } },
+  });
+  if (consumed.count === 0) {
+    throw new Error(`「${chosen.item.name}」在強化過程中被其他操作用掉了，請重新查詢後再試`);
+  }
+
+  // 扣完剛好歸零就刪掉，不留 quantity=0 的殘影（跟賣出的處理一致）
+  await tx.inventory.deleteMany({ where: { id: chosen.id, quantity: { lte: 0 } } });
+
+  return {
+    name: chosen.item.name,
+    quantity: requirement.quantity,
+    remaining: chosen.quantity - requirement.quantity,
+  };
+}
+
+/** 這次強化實際被消耗掉的材料；+5 以下不收材料時是 null */
+export interface EnhanceMaterialUsed {
+  name: string;
+  quantity: number;
+  /** 扣完之後還剩幾個 */
+  remaining: number;
+}
+
 export interface EnhanceResult {
   item: Item;
   success: boolean;
@@ -159,6 +282,8 @@ export interface EnhanceResult {
   goldAfter: number;
   /** 這次是不是失敗且掉了一級 */
   droppedLevel: boolean;
+  /** 消耗掉的材料，失敗一樣會扣（跟金幣同一套規則） */
+  materialUsed: EnhanceMaterialUsed | null;
 }
 
 /** 一件裝備實體：玩家擁有的「這一件」武器/防具/飾品 */
@@ -626,6 +751,31 @@ export class ItemService {
   }
 
   /**
+   * 強化按鈕要顯示的材料狀態：這一級要付幾個什麼階級的材料、實際會扣掉哪一種、手上有幾個。
+   * +5 以下不收材料，回傳 null。
+   *
+   * 一種都沒有時 name 是 null，呼叫端改用稀有度通稱顯示（「史詩材料 0/1」）。
+   * owned 是「庫存最多的那一種」的數量而不是全部同階材料的總和——因為一次強化只吃同一種，
+   * 手上各有 1 個藍水晶跟 1 個金礦並不能湊成 +8 要的 2 個
+   */
+  static async getEnhanceMaterialStatus(
+    userInternalId: string,
+    item: Item,
+    targetLevel: number
+  ): Promise<{
+    requirement: EnhanceMaterialRequirement;
+    name: string | null;
+    owned: number;
+  } | null> {
+    const requirement = enhanceMaterialRequirement(item, targetLevel);
+    if (!requirement) return null;
+
+    const candidates = await findEnhanceMaterials(prisma, userInternalId, requirement.rarity, 1);
+    const chosen = candidates[0];
+    return { requirement, name: chosen?.item.name ?? null, owned: chosen?.quantity ?? 0 };
+  }
+
+  /**
    * 強化指定的那一件裝備。成功 +1 級；失敗只損失費用，+6 以上失敗還會退一級。
    * 金幣的扣款用 conditional update（跟買東西一樣的手法），避免「查完錢夠、扣款前錢被花掉」的競態；
    * 等級的更新也帶上「等級還是強化前那個值」的條件，兩邊同時按強化不會把等級推成 +2
@@ -646,8 +796,14 @@ export class ItemService {
     }
 
     const cost = enhanceCost(instance.item);
+    const requirement = enhanceMaterialRequirement(instance.item, targetLevel);
 
     const result = await prisma.$transaction(async (tx) => {
+      // 材料先扣再扣金幣：後期玩家金幣充裕、卡住的幾乎都是材料，先擋掉可以少做一次「扣款又回滾」
+      const materialUsed = requirement
+        ? await consumeEnhanceMaterial(tx, userInternalId, requirement, targetLevel)
+        : null;
+
       const paid = await tx.user.updateMany({
         where: { id: userInternalId, gold: { gte: cost } },
         data: { gold: { decrement: cost } },
@@ -672,7 +828,7 @@ export class ItemService {
       }
 
       const user = await tx.user.findUniqueOrThrow({ where: { id: userInternalId } });
-      return { success, newLevel, droppedLevel, goldAfter: user.gold };
+      return { success, newLevel, droppedLevel, goldAfter: user.gold, materialUsed };
     });
 
     return { item: instance.item, previousLevel, cost, ...result };
