@@ -18,6 +18,7 @@ import {
   EQUIPPABLE_TYPES,
   ACCESSORY_SLOTS,
   MAX_ENHANCE_LEVEL,
+  RARITY_LABELS,
   enhanceCost,
   enhanceSuccessRate,
   enhanceFailureDropsLevel,
@@ -315,19 +316,29 @@ async function buildItemActionRows(
       }
     }
 
-    // 強化按鈕直接把成功率、費用、失敗後果標在上面，不用點下去才知道自己在賭什麼
+    // 強化按鈕直接把成功率、費用、材料、失敗後果標在上面，不用點下去才知道自己在賭什麼
     const targetLevel = entry.enhanceLevel + 1;
     if (targetLevel <= MAX_ENHANCE_LEVEL) {
       const cost = enhanceCost(item);
       const rate = Math.round(enhanceSuccessRate(targetLevel) * 100);
       // 失敗會退級的等級要先講清楚，不能等玩家賭輸了才發現
       const riskNote = enhanceFailureDropsLevel(targetLevel) ? "・失敗退級" : "";
+      const material = await ItemService.getEnhanceMaterialStatus(userInternalId, item, targetLevel);
+      const shortOfMaterial = material !== null && material.owned < material.requirement.quantity;
+
+      // 材料不足時把缺口寫在按鈕上並停用；連一種都沒有就退回稀有度通稱（「史詩材料 0/1」），
+      // 因為這時候根本沒有「哪一種」可以指名
+      const label = shortOfMaterial
+        ? `強化 +${targetLevel}（材料不足：${material.name ?? `${RARITY_LABELS[material.requirement.rarity]}材料`} ${material.owned}/${material.requirement.quantity}）`
+        : `強化 +${targetLevel}（${rate}%・${cost} 金幣${material ? `＋${material.name}×${material.requirement.quantity}` : ""}${riskNote}）`;
+
       equipButtons.push(
         new ButtonBuilder()
           .setCustomId(buildCustomId("inv_enhance", ownerId, String(page), entry.instanceId))
-          .setLabel(`強化 +${targetLevel}（${rate}%・${cost} 金幣${riskNote}）`.slice(0, 80))
+          .setLabel(label.slice(0, 80))
           .setEmoji("⚒️")
           .setStyle(ButtonStyle.Success)
+          .setDisabled(shortOfMaterial)
       );
     }
 
@@ -636,11 +647,16 @@ export async function handleInventoryEnhanceButton(interaction: ButtonInteractio
     await renderItemSelection(interaction, ownerId, page, instanceId);
 
     const name = `「${result.item.name}」`;
+    // 材料失敗也會被扣，所以成功失敗都要交代扣了什麼、還剩幾個，玩家才不會覺得材料莫名其妙變少
+    const used = result.materialUsed;
+    const spent = `花費 ${result.cost} 金幣${
+      used ? `、${used.name}×${used.quantity}（剩 ${used.remaining}）` : ""
+    }，目前 ${result.goldAfter} 金幣`;
     const message = result.success
-      ? `⚒️ 強化成功！${name} 現在是 **+${result.newLevel}**（花費 ${result.cost} 金幣，目前 ${result.goldAfter} 金幣）`
+      ? `⚒️ 強化成功！${name} 現在是 **+${result.newLevel}**（${spent}）`
       : result.droppedLevel
-        ? `💥 強化失敗，${name} 退回 **+${result.newLevel}**（花費 ${result.cost} 金幣，目前 ${result.goldAfter} 金幣）`
-        : `💥 強化失敗，${name} 維持 **+${result.newLevel}**，裝備沒有損失（花費 ${result.cost} 金幣，目前 ${result.goldAfter} 金幣）`;
+        ? `💥 強化失敗，${name} 退回 **+${result.newLevel}**（${spent}）`
+        : `💥 強化失敗，${name} 維持 **+${result.newLevel}**，裝備沒有損失（${spent}）`;
 
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   } catch (error) {
