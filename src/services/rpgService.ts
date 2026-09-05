@@ -4,6 +4,7 @@ import { daysBetweenDateStrings, getLocalDateString } from "../utils/datetime";
 import prisma from "./dbService";
 import { ItemService } from "./itemService";
 import type { EffectiveStats } from "./itemService";
+import { nextStepHint, NEW_PLAYER_HINT_MAX_LEVEL } from "./newPlayerHints";
 import {
   computeLevelUp,
   healOnWin,
@@ -268,6 +269,43 @@ export type DailyClaimResult =
 export class RPGService {
   static async findUserByDiscordId(userId: string): Promise<User | null> {
     return prisma.user.findUnique({ where: { userId } });
+  }
+
+  /**
+   * 新手的「下一步」提示，沒事可提醒（或已經不是新手）就回傳 null。
+   * 規則本身在 newPlayerHints.ts，這裡只負責把它要看的狀態查齊。
+   */
+  static async getNextStepHint(discordUserId: string): Promise<string | null> {
+    const user = await this.findUserByDiscordId(discordUserId);
+    if (!user) return null;
+    // 等級先擋掉，老手就不用白跑下面那三個查詢了
+    if (user.level >= NEW_PLAYER_HINT_MAX_LEVEL) return null;
+
+    const [effectiveStats, inventory, affordableUpgrade] = await Promise.all([
+      ItemService.getEffectiveStats(user.id, {
+        attack: user.attack,
+        defense: user.defense,
+        maxHealth: user.maxHealth,
+      }),
+      ItemService.getInventory(user.id),
+      ItemService.findAffordableUpgrade(user.id, user.gold),
+    ]);
+
+    return nextStepHint({
+      level: user.level,
+      health: user.health,
+      maxHealth: effectiveStats.maxHealth,
+      gold: user.gold,
+      hasHealingPotion: inventory.some(
+        (entry) => entry.kind === "stack" && entry.item.effectType === "heal" && entry.quantity > 0
+      ),
+      hasGathered: inventory.some(
+        (entry) =>
+          entry.kind === "stack" && (entry.item.type === "fish" || entry.item.type === "material")
+      ),
+      lastBattleAt: user.lastBattle,
+      affordableUpgrade,
+    });
   }
 
   static async getOrCreateUser(

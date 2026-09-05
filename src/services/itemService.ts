@@ -312,6 +312,45 @@ export class ItemService {
     return items.sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type));
   }
 
+  /**
+   * 商店裡買得起、而且真的比身上那件更好的武器或防具，挑最貴的那件。給新手的「下一步」提示用。
+   *
+   * **刻意只看武器和防具**：飾品有三欄、效果類型還混雜（攻擊力／金幣加成／經驗加成），
+   * 「哪個更好」根本沒有單一定義，硬要比只會推薦出新手看不懂為什麼比較好的東西。
+   * 武器防具各一欄、比的又是攻擊力防禦力這種一眼看得懂的數字，才適合拿來當提示。
+   *
+   * 比較只看主要效果值（爆擊率之類的第二效果不納入，同理由）；欄位空的就一律算升級。
+   */
+  static async findAffordableUpgrade(
+    userInternalId: string,
+    gold: number
+  ): Promise<{ name: string; cost: number } | null> {
+    const [catalog, equipped] = await Promise.all([
+      this.getShopCatalog(),
+      this.getEquipped(userInternalId),
+    ]);
+
+    const affordable = catalog
+      .filter((item) => (item.type === "weapon" || item.type === "armor") && item.cost <= gold)
+      .sort((a, b) => b.cost - a.cost);
+
+    for (const candidate of affordable) {
+      const eq = equipped.find((e) => e.slot === candidate.type)?.equipped;
+      if (!eq) return { name: candidate.name, cost: candidate.cost };
+
+      // 目前那件算上強化之後的實際數值，不然 +7 的裝備會被當成 +0 拿去比
+      const currentValue = this.describeInstanceEffects(eq.item, eq.enhanceLevel)
+        .filter((effect) => effect.type === candidate.effectType)
+        .reduce((best, effect) => Math.max(best, effect.value), 0);
+
+      if (candidate.effectValue > currentValue) {
+        return { name: candidate.name, cost: candidate.cost };
+      }
+    }
+
+    return null;
+  }
+
   // 有配方的道具才能鍛造；排序照 TYPE_ORDER（裝備優先），同類型內再照價格排
   static async getCraftableCatalog(): Promise<Item[]> {
     const items = await prisma.item.findMany({

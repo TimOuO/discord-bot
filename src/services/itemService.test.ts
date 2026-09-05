@@ -845,3 +845,65 @@ describe("ItemService.enhanceInstance 的材料成本", () => {
     expect(await ownedCount(user.id, material.id)).toBe(3);
   });
 });
+
+describe("ItemService.findAffordableUpgrade", () => {
+  // 測試 DB 是整輪共用的，商店目錄裡本來就有 seed 進去的裝備，
+  // 所以價格刻意開在所有可購買裝備（最貴的傳說裝 3000）之上，才不會被目錄裡的其他東西干擾
+  const ABOVE_CATALOG = 20_000;
+
+  it("欄位是空的時候，推薦買得起的裝備裡最貴的那件", async () => {
+    const { user } = await createTestUser({ gold: ABOVE_CATALOG + 6000 });
+    await createTestItem({ type: "weapon", cost: ABOVE_CATALOG, effectType: "attack", effectValue: 10 });
+    const best = await createTestItem({
+      type: "weapon",
+      cost: ABOVE_CATALOG + 5000,
+      effectType: "attack",
+      effectValue: 25,
+    });
+    await createTestItem({
+      type: "weapon",
+      cost: ABOVE_CATALOG + 90_000,
+      effectType: "attack",
+      effectValue: 60,
+    });
+
+    const upgrade = await ItemService.findAffordableUpgrade(user.id, ABOVE_CATALOG + 6000);
+
+    expect(upgrade).toEqual({ name: best.name, cost: ABOVE_CATALOG + 5000 });
+  });
+
+  it("身上兩件都已經比買得起的都好時，不推薦任何東西", async () => {
+    const { user } = await createTestUser({ gold: 1_000_000 });
+    // 數值開到目錄裡不可能有的高度，買得起的每一件都輸給身上這兩件
+    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 9999 });
+    const armor = await createTestItem({ type: "armor", cost: 100, effectType: "defense", effectValue: 9999 });
+    await ItemService.buyItem(user.id, weapon.name); // 空欄位會自動裝備
+    await ItemService.buyItem(user.id, armor.name);
+
+    const upgrade = await ItemService.findAffordableUpgrade(user.id, 1_000_000);
+
+    expect(upgrade).toBeNull();
+  });
+
+  it("沒錢就不推薦任何東西", async () => {
+    const { user } = await createTestUser({ gold: 0 });
+
+    const upgrade = await ItemService.findAffordableUpgrade(user.id, 0);
+
+    expect(upgrade).toBeNull();
+  });
+
+  it("飾品不列入推薦，就算三欄都空著也一樣", async () => {
+    const { user } = await createTestUser({ gold: 1_000_000 });
+    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 9999 });
+    const armor = await createTestItem({ type: "armor", cost: 100, effectType: "defense", effectValue: 9999 });
+    await ItemService.buyItem(user.id, weapon.name);
+    await ItemService.buyItem(user.id, armor.name);
+    // 飾品欄三格全空，而且這件買得起——但飾品不在推薦範圍內
+    await createTestItem({ type: "accessory", cost: 200, effectType: "maxHealth", effectValue: 50 });
+
+    const upgrade = await ItemService.findAffordableUpgrade(user.id, 1_000_000);
+
+    expect(upgrade).toBeNull();
+  });
+});
