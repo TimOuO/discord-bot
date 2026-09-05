@@ -22,7 +22,8 @@ export default (client: ExtendedClient): void => {
       const channel = await client.channels.fetch(announceChannelId).catch(() => null);
       if (!channel || !channel.isSendable()) return;
 
-      const embed = buildDailyRewardEmbed(member.user.username, result);
+      const nextStep = await RPGService.getNextStepHint(member.id);
+      const embed = buildDailyRewardEmbed(member.user.username, result, nextStep);
       await channel.send({ embeds: [embed] });
     } catch (error) {
       console.error("自動簽到時發生錯誤:", error);

@@ -65,6 +65,12 @@ async function runBattleAndBuildReply(userId: string, username: string, avatarUR
 
   embed.setFooter({ text: battleResult.result === "win" ? "恭喜獲勝！" : "不幸失敗，休息一下再來吧！" });
 
+  // 打完才知道「現在」該做什麼：剛賺到的錢夠換裝了、或血被打低了該回血
+  const nextStep = await RPGService.getNextStepHint(userId);
+  if (nextStep) {
+    embed.addFields(sectionField("👉", "下一步", [nextStep]));
+  }
+
   return { embeds: [embed], components: [buildBattleRematchRow(userId)] };
 }
 

@@ -1,11 +1,14 @@
 import { ChatInputCommandInteraction, EmbedBuilder, ColorResolvable } from "discord.js";
 import { RPGService, DailyClaimResult } from "../../services/rpgService";
-import { chip, progressBar } from "../../utils/embeds";
+import { sectionField, chip, progressBar } from "../../utils/embeds";
 
 // 共用：/rpg daily 手動簽到、voiceStateUpdate.ts 的自動簽到都用這個組出一樣的 embed
 export function buildDailyRewardEmbed(
   username: string,
-  result: Extract<DailyClaimResult, { status: "claimed" }>
+  result: Extract<DailyClaimResult, { status: "claimed" }>,
+  // 新手的「下一步」提示。簽到是流失中的新手唯一還會固定執行的指令（正式資料裡他們連續簽到
+  // 4 天卻好幾天沒戰鬥），所以這裡是唯一還接觸得到他們的地方
+  nextStep?: string | null
 ): EmbedBuilder {
   const { goldReward, streakBonus, streakBonusPercent, finalGoldReward, xpReward, streak, updatedUser, effectiveMaxHealth } =
     result;
@@ -38,6 +41,10 @@ export function buildDailyRewardEmbed(
     embed.setFooter({ text: `連續登入: ${streak} 天` });
   }
 
+  if (nextStep) {
+    embed.addFields(sectionField("👉", "下一步", [nextStep]));
+  }
+
   embed.setTimestamp();
   return embed;
 }
@@ -60,7 +67,8 @@ export async function handleDailyCommand(interaction: ChatInputCommandInteractio
       );
     }
 
-    const embed = buildDailyRewardEmbed(interaction.user.username, result);
+    const nextStep = await RPGService.getNextStepHint(interaction.user.id);
+    const embed = buildDailyRewardEmbed(interaction.user.username, result, nextStep);
     return interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error("Daily command error:", error);
