@@ -8,7 +8,9 @@ import {
   ColorResolvable,
   MessageFlags,
 } from "discord.js";
-import { RPGService } from "../../services/rpgService";
+import { RPGService, GATHER_COOLDOWN_MS } from "../../services/rpgService";
+import { PlayerNotice, describeCommandError } from "../../utils/errors";
+import { formatCooldown } from "../../utils/datetime";
 import { ItemService, RARITY_LABELS } from "../../services/itemService";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 import { chip } from "../../utils/embeds";
@@ -16,7 +18,7 @@ import { chip } from "../../utils/embeds";
 function buildGatherRetryButton(ownerId: string): ButtonBuilder {
   return new ButtonBuilder()
     .setCustomId(buildCustomId("gather_retry", ownerId))
-    .setLabel("再採一次")
+    .setLabel(`再採一次（冷卻 ${formatCooldown(GATHER_COOLDOWN_MS)}）`)
     .setEmoji("⛏️")
     .setStyle(ButtonStyle.Primary);
 }
@@ -49,10 +51,10 @@ async function runGatherAndBuildReply(userId: string, username: string, avatarUR
   const result = await RPGService.gather(userId);
 
   if (result.status === "not_started") {
-    throw new Error("你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！");
+    throw new PlayerNotice("你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！");
   }
   if (result.status === "cooldown") {
-    throw new Error(`⛏️ 還在恢復體力，請等待 ${result.remainingSeconds} 秒後再採集。`);
+    throw new PlayerNotice(`⛏️ 還在恢復體力，還要等 ${formatCooldown(result.remainingSeconds * 1000)}。`);
   }
   if (result.status === "empty") {
     const embed = new EmbedBuilder()
@@ -96,8 +98,7 @@ export async function handleGatherCommand(interaction: ChatInputCommandInteracti
     );
     return interaction.editReply(payload);
   } catch (error) {
-    console.error("RPG Gather 命令錯誤:", error);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeCommandError("RPG Gather 命令錯誤", error);
     return interaction.editReply(`採集失敗：${message}`);
   }
 }
@@ -118,7 +119,7 @@ export async function handleGatherRetryButton(interaction: ButtonInteraction) {
     await interaction.editReply(payload);
   } catch (error) {
     await interaction.deleteReply();
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeCommandError("採集按鈕錯誤", error);
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
 }
@@ -158,7 +159,7 @@ async function handleGatherSellInteraction(
     await interaction.editReply({ embeds: [embed], components: [retryRow] });
   } catch (error) {
     // 賣不掉（例如已經賣完了）不動原本卡片，只用 ephemeral 提示
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeCommandError("採集按鈕錯誤", error);
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
 }

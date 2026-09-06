@@ -1,6 +1,7 @@
 import { Item, User } from "../generated/prisma";
 import { randomInt, randomChance } from "../utils/random";
-import { daysBetweenDateStrings, getLocalDateString } from "../utils/datetime";
+import { daysBetweenDateStrings, getLocalDateString, formatCooldown } from "../utils/datetime";
+import { PlayerNotice } from "../utils/errors";
 import prisma from "./dbService";
 import { ItemService } from "./itemService";
 import type { EffectiveStats } from "./itemService";
@@ -18,8 +19,8 @@ import {
 // 給指令層顯示「距離下一級還差多少經驗」用，實作在 combat.ts
 export { xpThresholdForLevel };
 
-const BATTLE_COOLDOWN_MS = 30 * 1000;
-const DUNGEON_COOLDOWN_MS = 5 * 60 * 1000;
+export const BATTLE_COOLDOWN_MS = 30 * 1000;
+export const DUNGEON_COOLDOWN_MS = 5 * 60 * 1000;
 const DUNGEON_FLOOR_COUNT = 4;
 
 const ENEMY_TYPES = ["哥布林", "史萊姆", "骷髏戰士", "狼人", "山賊", "食人魔", "惡靈", "巨蜥"];
@@ -30,7 +31,7 @@ const ELITE_ENEMY_TYPES = ["菁英哥布林王", "血眼狼王", "暗影刺客",
 const BATTLE_LOOT_EVENT_CHANCE = 0.35;
 const BATTLE_ELITE_EVENT_CHANCE = 0.2;
 
-const FISH_COOLDOWN_MS = 60 * 1000;
+export const FISH_COOLDOWN_MS = 60 * 1000;
 const EMPTY_CATCH_CHANCE = 0.05;
 const EMPTY_CATCH_MESSAGES = [
   "魚餌被偷吃了，什麼都沒釣到...",
@@ -39,7 +40,7 @@ const EMPTY_CATCH_MESSAGES = [
   "只釣到一隻舊靴子。",
 ];
 
-const GATHER_COOLDOWN_MS = 60 * 1000;
+export const GATHER_COOLDOWN_MS = 60 * 1000;
 const GATHER_EMPTY_CHANCE = 0.05;
 const GATHER_EMPTY_MESSAGES = [
   "找了半天什麼都沒找到...",
@@ -388,7 +389,7 @@ export class RPGService {
     });
 
     if (!user) {
-      throw new Error("使用者不存在，請先使用 /rpg start 指令開始遊戲");
+      throw new PlayerNotice("使用者不存在，請先使用 /rpg start 指令開始遊戲");
     }
 
     // 先搶冷卻再算戰鬥：where 直接帶「還沒打過或已經過冷卻」的條件，count 是 0 就代表被搶輸了，
@@ -402,7 +403,7 @@ export class RPGService {
       const remainingTime = Math.ceil(
         (BATTLE_COOLDOWN_MS - (Date.now() - new Date(user.lastBattle!).getTime())) / 1000
       );
-      throw new Error(`戰鬥冷卻中，請等待 ${remainingTime} 秒後再試`);
+      throw new PlayerNotice(`⏳ 戰鬥冷卻中，還要等 ${formatCooldown(remainingTime * 1000)}。`);
     }
 
     // 有效屬性 = 基礎屬性 + 目前裝備加成，戰鬥傷害要用有效屬性計算，裝備才會真正影響戰鬥

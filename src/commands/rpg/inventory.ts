@@ -28,6 +28,7 @@ import type { EquipSlot, InventoryEntry } from "../../services/itemService";
 import type { Item } from "../../generated/prisma";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
+import { describeCommandError } from "../../utils/errors";
 
 const PAGE_SIZE = 10;
 
@@ -660,7 +661,8 @@ export async function handleInventoryEnhanceButton(interaction: ButtonInteractio
 
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    // 材料/金幣不夠是 PlayerNotice，不會進錯誤 log；真的壞掉才記錄，免得靜靜吞掉
+    const message = describeCommandError("強化按鈕錯誤", error);
     await interaction.followUp({ content: `強化失敗：${message}`, flags: MessageFlags.Ephemeral });
   }
 }

@@ -8,7 +8,9 @@ import {
   ColorResolvable,
   MessageFlags,
 } from "discord.js";
-import { RPGService, xpThresholdForLevel } from "../../services/rpgService";
+import { RPGService, xpThresholdForLevel, DUNGEON_COOLDOWN_MS } from "../../services/rpgService";
+import { PlayerNotice, describeCommandError } from "../../utils/errors";
+import { formatCooldown } from "../../utils/datetime";
 import { parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 import { sectionField, chip, progressBar } from "../../utils/embeds";
 
@@ -16,7 +18,7 @@ function buildDungeonRetryRow(ownerId: string): ActionRowBuilder<ButtonBuilder> 
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`dungeon_retry:${ownerId}`)
-      .setLabel("再次挑戰")
+      .setLabel(`再次挑戰（冷卻 ${formatCooldown(DUNGEON_COOLDOWN_MS)}）`)
       .setEmoji("🏰")
       .setStyle(ButtonStyle.Primary)
   );
@@ -27,10 +29,10 @@ async function runDungeonAndBuildReply(userId: string, username: string, avatarU
   const result = await RPGService.dungeon(userId);
 
   if (result.status === "not_started") {
-    throw new Error("你尚未開始 RPG 冒險。請先使用 /rpg start 命令開始遊戲！");
+    throw new PlayerNotice("你尚未開始 RPG 冒險。請先使用 /rpg start 命令開始遊戲！");
   }
   if (result.status === "cooldown") {
-    throw new Error(`地下城還沒重置，請等待 ${result.remainingSeconds} 秒後再挑戰`);
+    throw new PlayerNotice(`⏳ 地下城還在重置，還要等 ${formatCooldown(result.remainingSeconds * 1000)}。`);
   }
 
   const floorLines = result.floors.map((floor) => {
@@ -78,8 +80,7 @@ export async function handleDungeonCommand(interaction: ChatInputCommandInteract
     );
     return interaction.editReply(payload);
   } catch (error) {
-    console.error("Dungeon 命令錯誤:", error);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeCommandError("Dungeon 命令錯誤", error);
     return interaction.editReply(`挑戰失敗：${message}`);
   }
 }
@@ -100,7 +101,7 @@ export async function handleDungeonRetryButton(interaction: ButtonInteraction) {
     await interaction.editReply(payload);
   } catch (error) {
     await interaction.deleteReply();
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeCommandError("地下城「再次挑戰」按鈕錯誤", error);
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
 }

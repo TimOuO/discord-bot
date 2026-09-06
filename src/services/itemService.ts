@@ -1,5 +1,6 @@
 import { Item, Prisma } from "../generated/prisma";
 import { randomChance } from "../utils/random";
+import { PlayerNotice } from "../utils/errors";
 import prisma from "./dbService";
 
 export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2", "accessory3"] as const;
@@ -198,13 +199,6 @@ export function enhanceMaterialRequirement(
   return { rarity: tiers[tierIndex], quantity };
 }
 
-/**
- * 從背包扣掉一次強化要付的材料，回傳實際扣了哪一種。
- *
- * 同稀有度有 6 種材料（3 種魚 + 3 種礦），一律挑「庫存最多的那一種」：玩家不用多按一次選單
- * （一趟 +10 平均要按 76 次強化，多一步就是多 76 次點擊），而且挑最多的天然會避開快用完的稀缺材料。
- * 扣減本身是 conditional update，跟賣出/購買同一套競態防護。
- */
 // 「會被扣掉的那一種材料」的唯一查詢來源：顯示用（按鈕標籤）跟實際扣除都走這裡，
 // 免得兩邊的排序或型別過濾哪天走鐘，變成按鈕寫 A、實際扣 B
 function findEnhanceMaterials(
@@ -224,6 +218,13 @@ function findEnhanceMaterials(
   });
 }
 
+/**
+ * 從背包扣掉一次強化要付的材料，回傳實際扣了哪一種。
+ *
+ * 同稀有度有 6 種材料（3 種魚 + 3 種礦），一律挑「庫存最多的那一種」：玩家不用多按一次選單
+ * （一趟 +10 平均要按 76 次強化，多一步就是多 76 次點擊），而且挑最多的天然會避開快用完的稀缺材料。
+ * 扣減本身是 conditional update，跟賣出/購買同一套競態防護。
+ */
 async function consumeEnhanceMaterial(
   tx: Prisma.TransactionClient,
   userInternalId: string,
@@ -240,7 +241,7 @@ async function consumeEnhanceMaterial(
   const chosen = candidates[0];
   if (!chosen) {
     const rarityLabel = RARITY_LABELS[requirement.rarity] ?? requirement.rarity;
-    throw new Error(
+    throw new PlayerNotice(
       `材料不夠，強化到 +${targetLevel} 需要 ${requirement.quantity} 個${rarityLabel}材料（魚類或礦石，藥水不算）`
     );
   }
@@ -1035,7 +1036,7 @@ export class ItemService {
         });
         const have = inv?.quantity ?? 0;
         if (have < ingredient.quantity) {
-          throw new Error(
+          throw new PlayerNotice(
             `材料不夠：「${ingredient.itemName}」還差 ${ingredient.quantity - have} 個`
           );
         }

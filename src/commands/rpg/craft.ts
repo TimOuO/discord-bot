@@ -12,6 +12,7 @@ import {
   MessageFlags,
 } from "discord.js";
 import { RPGService } from "../../services/rpgService";
+import { PlayerNotice, describeCommandError } from "../../utils/errors";
 import {
   ItemService,
   RARITY_LABELS,
@@ -33,7 +34,7 @@ async function replyCraftSuccess(
   itemName: string
 ): Promise<{ embeds: EmbedBuilder[] }> {
   const user = await RPGService.findUserByDiscordId(discordUserId);
-  if (!user) throw new Error("你尚未開始 RPG 冒險，請先使用 /rpg start 命令開始遊戲！");
+  if (!user) throw new PlayerNotice("你尚未開始 RPG 冒險，請先使用 /rpg start 命令開始遊戲！");
 
   const { item, quantity, autoEquippedSlot } = await ItemService.craftItem(user.id, itemName);
 
@@ -77,8 +78,7 @@ export async function handleCraftCommand(interaction: ChatInputCommandInteractio
     const payload = await replyCraftSuccess(interaction.user.id, itemName);
     return interaction.editReply(payload);
   } catch (error) {
-    console.error("RPG Craft 命令錯誤:", error);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeCommandError("RPG Craft 命令錯誤", error);
     return interaction.editReply(`鍛造失敗：${message}`);
   }
 }

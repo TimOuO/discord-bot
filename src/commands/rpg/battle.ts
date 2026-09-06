@@ -8,7 +8,9 @@ import {
   ColorResolvable,
   MessageFlags,
 } from "discord.js";
-import { RPGService, xpThresholdForLevel } from "../../services/rpgService";
+import { RPGService, xpThresholdForLevel, BATTLE_COOLDOWN_MS } from "../../services/rpgService";
+import { PlayerNotice, describeCommandError } from "../../utils/errors";
+import { formatCooldown } from "../../utils/datetime";
 import type { BattleBonusEvent } from "../../services/rpgService";
 import { parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 import { sectionField, chip, progressBar } from "../../utils/embeds";
@@ -31,7 +33,7 @@ function buildBattleRematchRow(ownerId: string): ActionRowBuilder<ButtonBuilder>
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`battle_rematch:${ownerId}`)
-      .setLabel("再戰一次")
+      .setLabel(`再戰一次（冷卻 ${formatCooldown(BATTLE_COOLDOWN_MS)}）`)
       .setEmoji("⚔️")
       .setStyle(ButtonStyle.Primary)
   );
@@ -90,8 +92,7 @@ export async function handleBattleCommand(interaction: ChatInputCommandInteracti
       return interaction.editReply(message);
     }
   } catch (error) {
-    console.error("Battle 命令錯誤:", error);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeCommandError("Battle 命令錯誤", error);
     return interaction.editReply(`戰鬥失敗: ${message}`);
   }
 }
@@ -114,7 +115,7 @@ export async function handleBattleRematchButton(interaction: ButtonInteraction) 
   } catch (error) {
     // 失敗（例如冷卻中）不留下一則公開的空白/錯誤訊息，刪掉 placeholder 改成只有本人看得到的提示
     await interaction.deleteReply();
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeCommandError("戰鬥「再戰一次」按鈕錯誤", error);
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
 }
