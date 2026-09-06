@@ -29,6 +29,7 @@ import type { Item } from "../../generated/prisma";
 import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 import { describeCommandError } from "../../utils/errors";
+import { effectiveStatsFields } from "./statsFields";
 
 const PAGE_SIZE = 10;
 
@@ -97,11 +98,7 @@ async function buildInventoryView(
     .setFooter({ text: "選單選道具後可以直接裝備/使用/賣掉" })
     .addFields(
       sectionField("💰", "金幣", [`${chip(user.gold)}`]),
-      sectionField("📊", "有效屬性（基礎 + 裝備加成）", [
-        `攻擊力 ${chip(effectiveStats.attack)}（基礎 ${chip(user.attack)}）`,
-        `防禦力 ${chip(effectiveStats.defense)}（基礎 ${chip(user.defense)}）`,
-        `生命上限 ${chip(effectiveStats.maxHealth)}（基礎 ${chip(user.maxHealth)}）`,
-      ]),
+      ...effectiveStatsFields(user, effectiveStats),
       sectionField("🎒", "裝備欄", (() => {
         const weaponEq = equipped.find((e) => e.slot === "weapon")?.equipped;
         const armorEq = equipped.find((e) => e.slot === "armor")?.equipped;

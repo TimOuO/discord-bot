@@ -2,7 +2,8 @@ import { ChatInputCommandInteraction, EmbedBuilder, ColorResolvable } from "disc
 import { RPGService, xpThresholdForLevel } from "../../services/rpgService";
 import { msUntilFullHealth } from "../../services/combat";
 import { formatCooldown } from "../../utils/datetime";
-import { ItemService } from "../../services/itemService";
+import { ItemService, ACCESSORY_SLOTS } from "../../services/itemService";
+import { effectiveStatsFields } from "./statsFields";
 import { sectionField, chip, progressBar } from "../../utils/embeds";
 
 export async function handleStartCommand(interaction: ChatInputCommandInteraction) {
@@ -71,10 +72,21 @@ export async function handleProfileCommand(interaction: ChatInputCommandInteract
       maxHealth: user.maxHealth,
     });
 
+    const equipped = await ItemService.getEquipped(user.id);
+
+    const gearLine = (slot: string) => {
+      const eq = equipped.find((e) => e.slot === slot)?.equipped;
+      if (!eq) return "（空）";
+      return `${eq.item.name}${eq.enhanceLevel > 0 ? ` +${eq.enhanceLevel}` : ""}`;
+    };
+    const accessories = ACCESSORY_SLOTS.map((slot) => gearLine(slot));
+
     const embed = new EmbedBuilder()
       .setAuthor({ name: username, iconURL: interaction.user.displayAvatarURL() })
       .setTitle(`${username} 的角色資料`)
       .setColor("#2ecc71" as ColorResolvable)
+      // 大頭貼放右上角，卡片才不會整片都是文字
+      .setThumbnail(interaction.user.displayAvatarURL({ size: 256 }))
       .setDescription(regen.healed > 0 ? `💤 離線期間回復了 ${regen.healed} 點生命。` : null)
       .addFields(
         sectionField("📊", "角色狀態", [
@@ -85,12 +97,17 @@ export async function handleProfileCommand(interaction: ChatInputCommandInteract
             ? [`約 ${formatCooldown(msUntilFullHealth(regen.health, effectiveStats.maxHealth))}後滿血`]
             : []),
           `金幣 ${chip(user.gold)}`,
-          `攻擊力 ${chip(effectiveStats.attack)}`,
-          `防禦力 ${chip(effectiveStats.defense)}`,
+          ...(user.loginStreak > 0 ? [`連續簽到 ${chip(`${user.loginStreak} 天`)}`] : []),
+        ]),
+        ...effectiveStatsFields(user, effectiveStats),
+        sectionField("🎒", "裝備", [
+          `武器 ${gearLine("weapon")}`,
+          `防具 ${gearLine("armor")}`,
+          `飾品 ${accessories.join("、")}`,
         ])
       )
       .setFooter({
-        text: `裝備加成已計入；用 /rpg inventory 查看細節・創建時間: ${user.createdAt.toLocaleDateString()}`,
+        text: `戰鬥數值已含裝備與強化加成・創建於 ${user.createdAt.toLocaleDateString()}`,
       });
 
     const historyLines: string[] = [];

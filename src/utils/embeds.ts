@@ -1,9 +1,16 @@
 // 卡片排版風格共用工具：emoji｜標題 當欄位名稱（Discord 會自動加粗），
 // 內容用 ▷ 子項目列表、數字用等寬格式框起來像標籤，參考別的 RPG bot 的卡片排版
-export function sectionField(emoji: string, title: string, lines: string[]): { name: string; value: string } {
+export function sectionField(
+  emoji: string,
+  title: string,
+  lines: string[],
+  // Discord 會把連續的 inline 欄位排成同一列（一列最多三欄），用來做「左右並排」的區塊
+  inline = false
+): { name: string; value: string; inline: boolean } {
   return {
     name: `${emoji}｜${title}`,
     value: lines.map((line) => `▷ ${line}`).join("\n"),
+    inline,
   };
 }
 
