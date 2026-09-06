@@ -14,7 +14,7 @@
 ## 環境需求
 
 - Node.js（建議使用 LTS 版本）
-- npm——這個專案的 lockfile 是 `package-lock.json`，**不要**用 pnpm/yarn 安裝套件（repo 裡另外躺著一份 `pnpm-lock.yaml`，那是舊的、已經沒在用，不要照它裝）
+- npm——這個專案的 lockfile 是 `package-lock.json`，**不要**用 pnpm/yarn 安裝套件
 
 ## 環境變數（`.env`）
 

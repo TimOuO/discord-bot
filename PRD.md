@@ -120,10 +120,36 @@ Bot 24/7 跑在 Oracle Cloud「Always Free」的一台 VM 上，之前完全沒�
 **自動部署（`~/dc-bot/deploy.sh`，由 cron 每 5 分鐘觸發一次）**
 
 ```bash
+set -e
+# flock：cron 每 5 分鐘觸發一次，前一次還在跑的話直接結束，不會兩份同時部署
+exec 200>/tmp/dc-bot-deploy.lock
+flock -n 200 || exit 0
+date -Iseconds > /tmp/dc-bot-deploy-heartbeat.txt   # 心跳，通知送不出去時靠這個排查
+
+trap on_error ERR          # 任何一步失敗就私訊「卡在 $CURRENT_STEP」
+source <(tr -d '\r' < .env)
+
 git fetch origin main --quiet
 # 比對本地 HEAD 跟 origin/main，一樣就直接結束，不用往下跑
+[ "$LOCAL" = "$REMOTE" ] && exit 0
 git pull --ff-only origin main
 npm install
+
+# 測試 + 建置 gate：沒過就 git reset --hard 還原，新版本完全不會套用。
+# 注意 git pull 在 gate 前面，所以「VM 的 HEAD 前進了」不等於部署成功——
+# 判斷成功要看部署完成的標記，不是看 HEAD
+if ! (npm run test:typecheck && npm test && npm run build); then
+  trap - ERR               # 先關掉，免得下面的 exit 1 又觸發一次通用失敗通知
+  git reset --hard "$LOCAL"
+  notify "❌ 測試或建置沒過，已還原到舊版本 ..."
+  exit 1
+fi
+
+# 遷移前的快照（2026-09-06 加）：bot 自己那份每日備份是記憶體計時的，
+# 部署重啟後會把當天的檔案用「已遷移後」的狀態覆蓋掉，等於遷移前沒有退路。
+# 只留最近 10 份
+sqlite3 prisma/dev.db ".backup prisma/backups/pre-migrate-$(git rev-parse --short HEAD).db"
+
 npm run db:migrate        # prisma migrate deploy
 npm run db:seed:fish      # 冪等 upsert，重複跑安全
 npm run db:seed:gather    # 同上
@@ -131,7 +157,10 @@ npm run db:seed:highTier  # 同上
 npm run db:seed:craft     # 同上
 pm2 restart dc-bot
 npm run deploy || echo "指令註冊失敗，下次部署會自動重試"   # 重新註冊 slash 指令，失敗不擋部署
+notify "✅ 已自動部署新版本：舊hash → 新hash"
 ```
+
+> 上面是**節錄**，省略了 `notify()` 的實作與 `CURRENT_STEP` 的逐步賦值。`deploy.sh` 不受版控，這份文件是它唯一的紀錄，改了那邊要記得同步這裡。
 
 - **加新的種子腳本時，別忘了同步加進這份文件跟 `deploy.sh`**：`db:seed:gather` 跟 `db:seed:craft` 兩次都漏加進 `deploy.sh`，導致新道具的資料一直沒進到 production 資料庫，直到玩家回報「看不到東西」才發現、事後手動補跑。之後每加一個 `db:seed:*` 腳本，這裡跟 `deploy.sh` 要一起改。
 - `deploy.sh` 本身**不受版控**，只存在伺服器上（要改的話直接編輯後上傳，不透過 git pull 更新自己）
@@ -464,8 +493,8 @@ npm run deploy || echo "指令註冊失敗，下次部署會自動重試"   # �
 | --- | --- | --- |
 | S0 | ✅ | Bot 可上線；`/help` 已完成，會依實際載入的指令自動列出說明，並依權限隱藏管理員專用指令 |
 | M1 | ✅ | `/rpg start`、`/battle` + SQLite 已完成 |
-| M2 | ✅ | `/daily`、`/shop`（買/賣）、`/inventory`、`/equip`、`/use` 皆已完成，並通過端對端測試；`/battle` 已改用裝備加成後的有效屬性計算傷害 |
+| M2 | ✅ | `/daily`、`/shop`、`/inventory`、`/use` 皆已完成，並通過端對端測試；`/battle` 已改用裝備加成後的有效屬性計算傷害。裝備改從 `/rpg inventory` 選道具後按按鈕操作，獨立的 `/equip` 指令已移除 |
 | ~~M3~~ | ❌ 已移除 | `/ai`、Gemini 服務、`@google/generative-ai` 依賴全部拔掉，`GEMINI_API_KEY` 不再是啟動必要條件 |
 | ~~M4~~ | ❌ 已用其他方案取代 | 改用 Oracle Cloud VM（SQLite + PM2 + cron 輪詢自動部署），沒有用到 Neon 或 GitHub Actions |
-| M5 | ⬜ 未開始（已降級） | 範圍縮小為「PM2 崩潰時 webhook 通知」，還沒實作 |
+| M5 | ⬜ 未開始（已降級） | 範圍縮小為「**PM2 崩潰時** webhook 通知」，還沒實作。`deploy.sh` 已有的是**部署**成功/失敗的 DM 通知（第 14 節），那是另一件事——bot 在執行期間掛掉目前沒有任何人會被通知 |
 | ~~M6~~ | ❌ 標記不需要 | 已直接部署在 VM 上正常運作，不需要 Docker 化 |
