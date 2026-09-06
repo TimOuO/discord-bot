@@ -10,6 +10,7 @@ import {
   computeLevelUp,
   healOnWin,
   lossHealthFloor,
+  offlineRegen,
   rollEnemy,
   rollEnemyLevel,
   simulateCombat,
@@ -315,6 +316,54 @@ export type DailyClaimResult =
     };
 
 export class RPGService {
+  /**
+   * 結算離線回血，回傳結算後的血量與這次回了多少。
+   *
+   * 血量真正重要的入口（戰鬥、地下城進場、角色資料、背包、簽到、吃藥）先呼叫這個再往下做。
+   * 因為結果會寫回資料庫，漏掛一兩個入口不會造成不一致——下一個指令會自己補上。
+   *
+   * 回血量算出來是 0 的時候**不會推進 lastHealthTick**：上限 120 的新手每小時只回 10 點，
+   * 每兩分鐘下一個指令就是 0.35 點，照樣推進時鐘的話他永遠不會回血。
+   */
+  static async applyOfflineRegen(
+    userInternalId: string
+  ): Promise<{ health: number; healed: number }> {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userInternalId } });
+
+    // 既有玩家沒有時間戳：設成當下開始算，不追溯發放
+    if (!user.lastHealthTick) {
+      await prisma.user.update({
+        where: { id: userInternalId },
+        data: { lastHealthTick: new Date() },
+      });
+      return { health: user.health, healed: 0 };
+    }
+
+    const effectiveStats = await ItemService.getEffectiveStats(userInternalId, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+
+    const elapsedMs = Date.now() - user.lastHealthTick.getTime();
+    const healed = offlineRegen(user.health, effectiveStats.maxHealth, elapsedMs);
+    if (healed <= 0) {
+      return { health: user.health, healed: 0 };
+    }
+
+    // 條件帶上「血量還是我們讀到的那個值」，同時進來兩個指令不會各回一次
+    const applied = await prisma.user.updateMany({
+      where: { id: userInternalId, health: user.health },
+      data: { health: user.health + healed, lastHealthTick: new Date() },
+    });
+    if (applied.count === 0) {
+      const fresh = await prisma.user.findUniqueOrThrow({ where: { id: userInternalId } });
+      return { health: fresh.health, healed: 0 };
+    }
+
+    return { health: user.health + healed, healed };
+  }
+
   static async findUserByDiscordId(userId: string): Promise<User | null> {
     return prisma.user.findUnique({ where: { userId } });
   }
@@ -431,12 +480,18 @@ export class RPGService {
     bonusEvents: BattleBonusEvent[];
     bonusLevelsGained: number;
   }> {
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { userId },
     });
 
     if (!user) {
       throw new PlayerNotice("使用者不存在，請先使用 /rpg start 指令開始遊戲");
+    }
+
+    // 昨天輸完就下線的人，今天第一場不該還帶著殘血進場
+    const regen = await this.applyOfflineRegen(user.id);
+    if (regen.healed > 0) {
+      user = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     }
 
     // 先搶冷卻再算戰鬥：where 直接帶「還沒打過或已經過冷卻」的條件，count 是 0 就代表被搶輸了，
@@ -777,6 +832,11 @@ export class RPGService {
       maxHealth: user.maxHealth,
     });
 
+    // 地下城進場是滿血，但離場會回復成 healthBefore——那個值要是「已經算過離線回血」的，
+    // 不然玩家等了一整晚的回血會在離開地下城時被抹掉
+    const regen = await this.applyOfflineRegen(user.id);
+    const userHealth = regen.health;
+
     const existing = await prisma.dungeonRun.findUnique({ where: { userId: user.id } });
     if (existing) {
       // 未完成的趟隨時可以回來繼續，不會過期、也不再扣一次冷卻
@@ -803,7 +863,7 @@ export class RPGService {
         clearedFloors: 0,
         health: stats.maxHealth, // 進場一律滿血
         maxHealth: stats.maxHealth,
-        healthBefore: user.health,
+        healthBefore: userHealth,
         lootPending: [] as unknown as Prisma.InputJsonValue,
         nextFloor: rollDungeonFloor(user.level, 1) as unknown as Prisma.InputJsonValue,
       },
@@ -995,6 +1055,9 @@ export class RPGService {
       maxHealth: user.maxHealth,
     });
 
+    // 簽到的 +30% 要疊在離線回血之後的血量上，不然等了一整晚的回血會被這一行蓋掉
+    const { health: healthAfterRegen } = await this.applyOfflineRegen(user.id);
+
     const baseGold = 50;
     const baseXP = 30;
     const goldMultiplier = 1 + user.level * 0.1;
@@ -1047,7 +1110,7 @@ export class RPGService {
         xp: { increment: xpReward },
         lastDaily: now,
         health: Math.min(
-          user.health + Math.floor(effectiveStats.maxHealth * 0.3),
+          healthAfterRegen + Math.floor(effectiveStats.maxHealth * 0.3),
           effectiveStats.maxHealth
         ),
         loginStreak: streak,

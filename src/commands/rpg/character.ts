@@ -1,5 +1,7 @@
 import { ChatInputCommandInteraction, EmbedBuilder, ColorResolvable } from "discord.js";
 import { RPGService, xpThresholdForLevel } from "../../services/rpgService";
+import { msUntilFullHealth } from "../../services/combat";
+import { formatCooldown } from "../../utils/datetime";
 import { ItemService } from "../../services/itemService";
 import { sectionField, chip, progressBar } from "../../utils/embeds";
 
@@ -61,6 +63,8 @@ export async function handleProfileCommand(interaction: ChatInputCommandInteract
 
     // 獲取或創建用戶
     const user = await RPGService.getOrCreateUser(userId, username);
+    // 先結算離線回血再顯示，不然玩家看到的是還沒補上的舊血量
+    const regen = await RPGService.applyOfflineRegen(user.id);
     const effectiveStats = await ItemService.getEffectiveStats(user.id, {
       attack: user.attack,
       defense: user.defense,
@@ -71,10 +75,15 @@ export async function handleProfileCommand(interaction: ChatInputCommandInteract
       .setAuthor({ name: username, iconURL: interaction.user.displayAvatarURL() })
       .setTitle(`${username} 的角色資料`)
       .setColor("#2ecc71" as ColorResolvable)
+      .setDescription(regen.healed > 0 ? `💤 離線期間回復了 ${regen.healed} 點生命。` : null)
       .addFields(
         sectionField("📊", "角色狀態", [
           `等級 ${chip(user.level)}（經驗 ${chip(`${user.xp}/${xpThresholdForLevel(user.level)}`)}）`,
-          `生命值 ${progressBar(user.health, effectiveStats.maxHealth)} ${chip(`${user.health}/${effectiveStats.maxHealth}`)}`,
+          `生命值 ${progressBar(regen.health, effectiveStats.maxHealth)} ${chip(`${regen.health}/${effectiveStats.maxHealth}`)}`,
+          // 資訊只在能改變決定時才出現：滿血就不用多講，殘血才需要知道「要不要等一下再打」
+          ...(regen.health < effectiveStats.maxHealth
+            ? [`約 ${formatCooldown(msUntilFullHealth(regen.health, effectiveStats.maxHealth))}後滿血`]
+            : []),
           `金幣 ${chip(user.gold)}`,
           `攻擊力 ${chip(effectiveStats.attack)}`,
           `防禦力 ${chip(effectiveStats.defense)}`,

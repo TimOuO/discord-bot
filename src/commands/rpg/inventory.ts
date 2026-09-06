@@ -77,6 +77,9 @@ async function buildInventoryView(
     throw new Error("你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！");
   }
 
+  // 背包也顯示有效屬性，先結算離線回血才不會顯示過期的血量
+  await RPGService.applyOfflineRegen(user.id);
+
   const [inventory, equipped, effectiveStats] = await Promise.all([
     ItemService.getInventory(user.id),
     ItemService.getEquipped(user.id),
