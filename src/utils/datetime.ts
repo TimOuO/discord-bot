@@ -23,3 +23,16 @@ export function daysBetweenDateStrings(from: string, to: string): number {
   const toMs = Date.parse(`${to}T00:00:00Z`);
   return Math.round((toMs - fromMs) / (24 * 60 * 60 * 1000));
 }
+
+/**
+ * 把冷卻長度寫成按鈕標籤看得懂的樣子（「30 秒」「5 分鐘」「1 分 30 秒」）。
+ * 不做無聲進位：90 秒就寫「1 分 30 秒」，不會四捨五入成「2 分鐘」讓玩家白等。
+ */
+export function formatCooldown(ms: number): string {
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds} 秒`;
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes} 分鐘` : `${minutes} 分 ${seconds} 秒`;
+}
