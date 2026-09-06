@@ -722,6 +722,18 @@ export class RPGService {
     loot: PendingLoot[] = []
   ): Promise<User> {
     return prisma.$transaction(async (tx) => {
+      // 先用 conditional delete 搶下「結算這一趟」的權利，再發獎勵。
+      // deleteMany 刪到 0 筆不會拋錯、交易照樣 commit，所以少了這道檢查就會變成複製戰利品的漏洞：
+      // 「帶著離開」連點兩下時兩個請求都讀到同一趟、都發一次獎勵。
+      // 帶上 clearedFloors 是為了另一個場景——連點兩下、一邊贏一邊輸時，
+      // 輸的那邊會拿著過期的層數把贏的那邊剛推進的進度整個刪掉。
+      const claimed = await tx.dungeonRun.deleteMany({
+        where: { id: run.id, clearedFloors: run.clearedFloors },
+      });
+      if (claimed.count === 0) {
+        throw new PlayerNotice("這一趟剛剛已經結算過了，請重新查看目前進度");
+      }
+
       for (const entry of loot) {
         await tx.inventory.upsert({
           where: { userId_itemId: { userId: user.id, itemId: entry.itemId } },
@@ -747,7 +759,6 @@ export class RPGService {
         },
       });
 
-      await tx.dungeonRun.deleteMany({ where: { id: run.id } });
       return updated;
     });
   }

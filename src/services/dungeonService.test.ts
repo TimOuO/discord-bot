@@ -168,3 +168,85 @@ describe("RPGService.dungeonDescend", () => {
     expect(result.status).toBe("no_run");
   });
 });
+
+describe("一趟只能結算一次（複製戰利品的防線）", () => {
+  it("「帶著離開」連點兩下，獎勵只發一次", async () => {
+    const { discordUserId, user } = await strongPlayer();
+    await prisma.user.update({ where: { id: user.id }, data: { gold: 0, xp: 0 } });
+    const entered = await RPGService.dungeonEnter(discordUserId);
+    if (entered.status !== "at_decision") throw new Error("預期停在決策點");
+    expect(entered.goldPending).toBeGreaterThan(0);
+
+    const results = await Promise.allSettled([
+      RPGService.dungeonLeave(discordUserId),
+      RPGService.dungeonLeave(discordUserId),
+    ]);
+
+    const left = results.filter(
+      (r) => r.status === "fulfilled" && r.value.status === "left"
+    );
+    expect(left).toHaveLength(1);
+
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(after.gold).toBe(entered.goldPending); // 不是兩倍
+    expect(await prisma.dungeonRun.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  it("「繼續下潛」連點兩下、兩邊都戰敗時，經驗只發一次", async () => {
+    const { discordUserId, user } = await strongPlayer();
+    await prisma.user.update({ where: { id: user.id }, data: { xp: 0 } });
+    const entered = await RPGService.dungeonEnter(discordUserId);
+    if (entered.status !== "at_decision") throw new Error("預期停在決策點");
+
+    // 血量壓到 1，兩邊的模擬必然都是戰敗
+    await prisma.dungeonRun.update({
+      where: { userId: user.id },
+      data: { health: 1 },
+    });
+    const pendingXp = entered.xpPending;
+    expect(pendingXp).toBeGreaterThan(0);
+
+    const results = await Promise.allSettled([
+      RPGService.dungeonDescend(discordUserId),
+      RPGService.dungeonDescend(discordUserId),
+    ]);
+
+    const died = results.filter(
+      (r) => r.status === "fulfilled" && r.value.status === "died"
+    );
+    expect(died).toHaveLength(1);
+
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(after.xp).toBe(pendingXp); // 不是兩倍
+  });
+
+  it("「離開」跟「下潛」同時進來時，只有一邊會生效", async () => {
+    const { discordUserId, user } = await strongPlayer();
+    await prisma.user.update({ where: { id: user.id }, data: { gold: 0 } });
+    const entered = await RPGService.dungeonEnter(discordUserId);
+    if (entered.status !== "at_decision") throw new Error("預期停在決策點");
+
+    const results = await Promise.allSettled([
+      RPGService.dungeonLeave(discordUserId),
+      RPGService.dungeonDescend(discordUserId),
+    ]);
+
+    const settled = results.filter(
+      (r) =>
+        r.status === "fulfilled" &&
+        (r.value.status === "left" || r.value.status === "died")
+    );
+    // 離開會結算並刪掉這趟；下潛若成功推進則這趟還在，但兩者不會同時結算
+    expect(settled.length).toBeLessThanOrEqual(1);
+
+    const run = await prisma.dungeonRun.findUnique({ where: { userId: user.id } });
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    if (run) {
+      // 下潛贏了、離開被擋下來：金幣還沒入袋
+      expect(after.gold).toBe(0);
+    } else {
+      // 離開生效：入袋的金額就是離開當下的未入袋金額，不會被下潛的結果重複加
+      expect(after.gold).toBe(entered.goldPending);
+    }
+  });
+});
