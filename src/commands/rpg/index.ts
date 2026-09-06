@@ -20,7 +20,11 @@ import {
   handleInventoryEnhanceButton,
 } from "./inventory";
 import { handleBattleCommand, handleBattleRematchButton } from "./battle";
-import { handleDungeonCommand, handleDungeonRetryButton } from "./dungeon";
+import {
+  handleDungeonCommand,
+  handleDungeonDescendButton,
+  handleDungeonLeaveButton,
+} from "./dungeon";
 import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
 import { handleFishCommand, handleFishRetryButton, handleFishSellButton, handleFishSellAllButton } from "./fish";
 import { handleGatherCommand, handleGatherRetryButton, handleGatherSellButton, handleGatherSellAllButton } from "./gather";
@@ -44,7 +48,8 @@ import type { Command } from "../index";
 // 按鈕/選單 handler、buildDailyRewardEmbed 給 interactionCreate.ts、voiceStateUpdate.ts 用
 export {
   handleBattleRematchButton,
-  handleDungeonRetryButton,
+  handleDungeonDescendButton,
+  handleDungeonLeaveButton,
   handleFishRetryButton,
   handleFishSellButton,
   handleFishSellAllButton,
@@ -91,7 +96,7 @@ export default {
       subcommand.setName("battle").setDescription("在 RPG 遊戲中戰鬥")
     )
     .addSubcommand((subcommand) =>
-      subcommand.setName("dungeon").setDescription("挑戰地下城，連續四層戰鬥，全破有額外獎勵")
+      subcommand.setName("dungeon").setDescription("下潛地下城：越深獎勵越好，但戰敗會沒收未帶走的戰利品")
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("daily").setDescription("領取每日獎勵")

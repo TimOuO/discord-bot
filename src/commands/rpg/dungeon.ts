@@ -8,75 +8,166 @@ import {
   ColorResolvable,
   MessageFlags,
 } from "discord.js";
-import { RPGService, xpThresholdForLevel, DUNGEON_COOLDOWN_MS } from "../../services/rpgService";
+import { RPGService, DUNGEON_COOLDOWN_MS } from "../../services/rpgService";
+import type {
+  DungeonEnterResult,
+  DungeonClearedFloor,
+  PendingLoot,
+} from "../../services/rpgService";
+import { AFFIX_LABELS, AFFIX_DESCRIPTIONS } from "../../services/dungeonRun";
 import { PlayerNotice, describeCommandError } from "../../utils/errors";
 import { formatCooldown } from "../../utils/datetime";
-import { parseCustomId, requireInteractionOwner } from "../../utils/interactions";
+import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 import { sectionField, chip, progressBar } from "../../utils/embeds";
 
-function buildDungeonRetryRow(ownerId: string): ActionRowBuilder<ButtonBuilder> {
+/** 一次自動突破太多層時，摘要只列最後這幾層——前面的都是碾過去的，不值得佔版面 */
+const MAX_SUMMARY_FLOORS = 6;
+
+function describeEnemy(enemyName: string, enemyLevel: number, affix: string | null): string {
+  if (!affix) return `${enemyName} Lv.${enemyLevel}`;
+  const label = AFFIX_LABELS[affix as keyof typeof AFFIX_LABELS] ?? affix;
+  const desc = AFFIX_DESCRIPTIONS[affix as keyof typeof AFFIX_DESCRIPTIONS] ?? "";
+  return `${enemyName} Lv.${enemyLevel}【${label}】${desc}`;
+}
+
+function summariseFloors(floors: DungeonClearedFloor[]): string[] {
+  if (floors.length === 0) return [];
+  const shown = floors.slice(-MAX_SUMMARY_FLOORS);
+  const lines = shown.map((f) => {
+    const material = f.materialName ? ` ✨「${f.materialName}」` : "";
+    return `第 ${f.floor} 層 ✓ ${describeEnemy(f.enemyName, f.enemyLevel, f.affix)}（${f.rounds} 回合）${material}`;
+  });
+  if (floors.length > shown.length) {
+    lines.unshift(`…前 ${floors.length - shown.length} 層已自動突破`);
+  }
+  return lines;
+}
+
+function describeLoot(loot: PendingLoot[]): string {
+  if (loot.length === 0) return "（無）";
+  return loot.map((l) => `${l.name}${l.quantity > 1 ? ` x${l.quantity}` : ""}`).join("、");
+}
+
+function buildDecisionRow(ownerId: string, survivalPercent: number): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`dungeon_retry:${ownerId}`)
-      .setLabel(`再次挑戰（冷卻 ${formatCooldown(DUNGEON_COOLDOWN_MS)}）`)
-      .setEmoji("🏰")
-      .setStyle(ButtonStyle.Primary)
+      .setCustomId(buildCustomId("dungeon_descend", ownerId))
+      .setLabel(`繼續下潛（存活率 ${survivalPercent}%）`)
+      .setEmoji("⬇️")
+      // 存活率低於一半就不要用綠色慫恿玩家，讓按鈕本身就帶著警告
+      .setStyle(survivalPercent >= 50 ? ButtonStyle.Primary : ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("dungeon_leave", ownerId))
+      .setLabel("帶著戰利品離開")
+      .setEmoji("💰")
+      .setStyle(ButtonStyle.Success)
   );
 }
 
-// /rpg dungeon 首次執行、跟「再次挑戰」按鈕都呼叫這個，確保卡片長得一模一樣
-async function runDungeonAndBuildReply(userId: string, username: string, avatarURL: string) {
-  const result = await RPGService.dungeon(userId);
-
-  if (result.status === "not_started") {
-    throw new PlayerNotice("你尚未開始 RPG 冒險。請先使用 /rpg start 命令開始遊戲！");
-  }
-  if (result.status === "cooldown") {
-    throw new PlayerNotice(`⏳ 地下城還在重置，還要等 ${formatCooldown(result.remainingSeconds * 1000)}。`);
-  }
-
-  const floorLines = result.floors.map((floor) => {
-    const outcome = floor.result === "win" ? "✅ 勝利" : "❌ 落敗";
-    const emoji = floor.floor === 4 ? "🏆" : "⚔️";
-    const rareLootNote = floor.rareLoot ? `\n　└ ✨ 額外掉落了稀有材料「${floor.rareLoot.item.name}」！` : "";
-    const healthNote = `${floor.healthDelta >= 0 ? "+" : ""}${floor.healthDelta}`;
-    return `${emoji} 第 ${floor.floor} 層：${floor.enemyName} Lv.${floor.enemyLevel} → ${outcome}（${chip(floor.rounds)} 回合）\n　生命值 ${chip(floor.healthAfter)}（${chip(healthNote)}）${rareLootNote}`;
-  });
-
-  const rewardLines = [
-    `經驗值 +${chip(result.totalXpGained)}${result.completionBonusXp > 0 ? `（含全通關 +${result.completionBonusXp}）` : ""}`,
-    `金幣 +${chip(result.totalGoldGained)}${result.completionBonusGold > 0 ? `（含全通關 +${result.completionBonusGold}）` : ""}`,
-  ];
-
-  const description = result.clearedAllFloors
-    ? "恭喜！你完全征服了地下城！"
-    : `你在第 ${result.floors.length} 層落敗，鎩羽而歸……不過已過的關卡獎勵都保留下來了。`;
+/** 停在決策點的卡片：把這次自動打過的層、目前未入袋的東西、下一層的風險全部攤開 */
+function buildDecisionReply(
+  username: string,
+  avatarURL: string,
+  ownerId: string,
+  result: Extract<DungeonEnterResult, { status: "at_decision" }>
+) {
+  const survivalPercent = Math.round(result.survival * 100);
+  const next = result.nextFloor;
 
   const embed = new EmbedBuilder()
     .setAuthor({ name: username, iconURL: avatarURL })
-    .setTitle("🏰 地下城挑戰")
-    .setDescription(description)
-    .setColor((result.clearedAllFloors ? "#f1c40f" : "#e74c3c") as ColorResolvable)
-    .addFields(
-      sectionField("📜", "戰鬥記錄", floorLines),
-      sectionField("🎁", "獲得獎勵", rewardLines),
-      sectionField("📊", "目前狀態", [
-        `等級 ${chip(result.user.level)}（經驗 ${chip(`${result.user.xp}/${xpThresholdForLevel(result.user.level)}`)}）`,
-        `生命值 ${progressBar(result.user.health, result.effectiveMaxHealth)} ${chip(`${result.user.health}/${result.effectiveMaxHealth}`)}（${result.healthDelta >= 0 ? "+" : ""}${chip(result.healthDelta)}）`,
-        `金幣 ${chip(result.user.gold)}`,
-      ])
+    .setTitle(`🏰 地下城 — 已下潛 ${result.clearedFloors} 層`)
+    .setColor((survivalPercent >= 50 ? "#e67e22" : "#e74c3c") as ColorResolvable);
+
+  const summary = summariseFloors(result.autoCleared);
+  if (summary.length > 0) {
+    embed.addFields(sectionField("⚔️", "這一段的戰況", summary));
+  }
+
+  embed.addFields(
+    sectionField("📊", "目前狀態", [
+      `血量 ${progressBar(result.health, result.maxHealth)} ${chip(`${result.health}/${result.maxHealth}`)}`,
+    ]),
+    // 「未入袋」三個字要一直在玩家眼前：那是他正在拿來賭的東西
+    sectionField("🎒", "未入袋的戰利品（戰敗全部沒收）", [
+      `金幣 ${chip(result.goldPending)}`,
+      `經驗 ${chip(result.xpPending)}（經驗不會沒收）`,
+      `材料 ${describeLoot(result.lootPending)}`,
+    ]),
+    sectionField("⚠️", `第 ${next.floor} 層`, [
+      describeEnemy(next.enemy.name, next.enemy.level, next.affix),
+      `存活率 ${chip(`${survivalPercent}%`)}`,
+      next.givesMaterial ? "打贏這層會多拿一件稀有材料" : "",
+    ].filter(Boolean))
+  );
+
+  embed.setFooter({ text: "沒帶走的東西戰敗就沒了；離開之後要等冷卻才能再進來" });
+
+  return { embeds: [embed], components: [buildDecisionRow(ownerId, survivalPercent)] };
+}
+
+function buildDeathReply(
+  username: string,
+  avatarURL: string,
+  result: Extract<DungeonEnterResult, { status: "died" }>
+) {
+  const embed = new EmbedBuilder()
+    .setAuthor({ name: username, iconURL: avatarURL })
+    .setTitle(`💀 倒在第 ${result.deathFloor.floor} 層`)
+    .setColor("#992d22" as ColorResolvable)
+    .setDescription(
+      `敗給了 ${describeEnemy(result.deathFloor.enemy.name, result.deathFloor.enemy.level, result.deathFloor.affix)}。`
     );
 
-  return { embeds: [embed], components: [buildDungeonRetryRow(userId)] };
+  const summary = summariseFloors(result.autoCleared);
+  if (summary.length > 0) {
+    embed.addFields(sectionField("⚔️", "這一段的戰況", summary));
+  }
+
+  embed.addFields(
+    sectionField("💀", "沒收的戰利品", [
+      `金幣 ${chip(result.goldForfeited)}`,
+      `材料 ${describeLoot(result.lootForfeited)}`,
+    ]),
+    sectionField("✨", "保住的東西", [
+      `經驗 ${chip(result.xpGained)}`,
+      "血量已回復成進場前的狀態",
+    ])
+  );
+
+  embed.setFooter({ text: `總共下潛了 ${result.clearedFloors} 層` });
+  return { embeds: [embed], components: [] };
+}
+
+async function buildReply(
+  discordUserId: string,
+  username: string,
+  avatarURL: string,
+  result: DungeonEnterResult | { status: "no_run" }
+) {
+  switch (result.status) {
+    case "not_started":
+      throw new PlayerNotice("你尚未開始 RPG 冒險。請先使用 /rpg start 命令開始遊戲！");
+    case "cooldown":
+      throw new PlayerNotice(`⏳ 地下城還在重置，還要等 ${formatCooldown(result.remainingSeconds * 1000)}。`);
+    case "no_run":
+      throw new PlayerNotice("你現在沒有正在進行的下潛，用 `/rpg dungeon` 開始新的一趟。");
+    case "at_decision":
+      return buildDecisionReply(username, avatarURL, discordUserId, result);
+    case "died":
+      return buildDeathReply(username, avatarURL, result);
+  }
 }
 
 export async function handleDungeonCommand(interaction: ChatInputCommandInteraction) {
   try {
     await interaction.deferReply();
-    const payload = await runDungeonAndBuildReply(
+    const result = await RPGService.dungeonEnter(interaction.user.id);
+    const payload = await buildReply(
       interaction.user.id,
       interaction.user.username,
-      interaction.user.displayAvatarURL()
+      interaction.user.displayAvatarURL(),
+      result
     );
     return interaction.editReply(payload);
   } catch (error) {
@@ -85,23 +176,70 @@ export async function handleDungeonCommand(interaction: ChatInputCommandInteract
   }
 }
 
-// interactionCreate.ts 會把 "dungeon_retry:*" 的按鈕點擊導到這裡
-// 發新訊息、不動原本那張卡片：跟 battle 的「再戰一次」同樣的道理，編輯原地不會把卡片頂到頻道最下面
-export async function handleDungeonRetryButton(interaction: ButtonInteraction) {
+// 下潛/離開都是「原地更新同一張卡片」：一趟是連續的過程，
+// 每按一次就在頻道多洗一則新訊息會把整趟的脈絡打散
+async function handleRunButton(
+  interaction: ButtonInteraction,
+  run: (discordUserId: string) => Promise<DungeonEnterResult | { status: "no_run" }>,
+  context: string
+) {
   const { ownerId } = parseCustomId(interaction.customId);
   if (!(await requireInteractionOwner(interaction, ownerId))) return;
 
-  await interaction.deferReply();
+  await interaction.deferUpdate();
   try {
-    const payload = await runDungeonAndBuildReply(
+    const result = await run(interaction.user.id);
+    const payload = await buildReply(
       interaction.user.id,
       interaction.user.username,
-      interaction.user.displayAvatarURL()
+      interaction.user.displayAvatarURL(),
+      result
     );
     await interaction.editReply(payload);
   } catch (error) {
-    await interaction.deleteReply();
-    const message = describeCommandError("地下城「再次挑戰」按鈕錯誤", error);
+    const message = describeCommandError(context, error);
+    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
+  }
+}
+
+export async function handleDungeonDescendButton(interaction: ButtonInteraction) {
+  return handleRunButton(interaction, (id) => RPGService.dungeonDescend(id), "地下城下潛按鈕錯誤");
+}
+
+export async function handleDungeonLeaveButton(interaction: ButtonInteraction) {
+  const { ownerId } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+
+  await interaction.deferUpdate();
+  try {
+    const result = await RPGService.dungeonLeave(interaction.user.id);
+    if (result.status === "not_started") {
+      throw new PlayerNotice("你尚未開始 RPG 冒險。請先使用 /rpg start 命令開始遊戲！");
+    }
+    if (result.status === "no_run") {
+      throw new PlayerNotice("你現在沒有正在進行的下潛，用 `/rpg dungeon` 開始新的一趟。");
+    }
+
+    const embed = new EmbedBuilder()
+      .setAuthor({
+        name: interaction.user.username,
+        iconURL: interaction.user.displayAvatarURL(),
+      })
+      .setTitle(`💰 帶著戰利品離開地下城`)
+      .setColor("#2ecc71" as ColorResolvable)
+      .setDescription(`在第 ${result.clearedFloors} 層見好就收。`)
+      .addFields(
+        sectionField("🎒", "入袋", [
+          `金幣 ${chip(result.goldGained)}`,
+          `經驗 ${chip(result.xpGained)}`,
+          `材料 ${describeLoot(result.loot)}`,
+        ])
+      )
+      .setFooter({ text: `目前金幣 ${result.user.gold}・冷卻 ${formatCooldown(DUNGEON_COOLDOWN_MS)}` });
+
+    await interaction.editReply({ embeds: [embed], components: [] });
+  } catch (error) {
+    const message = describeCommandError("地下城離開按鈕錯誤", error);
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
   }
 }

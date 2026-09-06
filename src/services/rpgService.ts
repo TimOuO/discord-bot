@@ -1,4 +1,4 @@
-import { Item, User } from "../generated/prisma";
+import { Item, Prisma, User, DungeonRun } from "../generated/prisma";
 import { randomInt, randomChance } from "../utils/random";
 import { daysBetweenDateStrings, getLocalDateString, formatCooldown } from "../utils/datetime";
 import { PlayerNotice } from "../utils/errors";
@@ -15,6 +15,14 @@ import {
   simulateCombat,
   xpThresholdForLevel,
 } from "./combat";
+import {
+  AUTO_DESCEND_SURVIVAL_THRESHOLD,
+  MAX_DUNGEON_FLOOR,
+  estimateSurvival,
+  rollDungeonFloor,
+  type DungeonAffix,
+  type DungeonFloorPlan,
+} from "./dungeonRun";
 
 // 給指令層顯示「距離下一級還差多少經驗」用，實作在 combat.ts
 export { xpThresholdForLevel };
@@ -109,10 +117,14 @@ export interface RareLoot {
 // 打贏菁英怪/地下城 boss 保證額外掉一件稀有材料，只從 rare/epic/legendary 三階抽（跳過 common/uncommon），
 // 混合 FISH_TABLE/GATHER_TABLE，兩個表的稀有度順序一樣固定是 common/uncommon/rare/epic/legendary，
 // slice(2) 就是拿掉前兩階只留 rare 以上
-async function grantRareLoot(userId: string): Promise<RareLoot | null> {
+export async function pickRareLootItem(): Promise<Item | null> {
   const table = randomChance(0.5) ? FISH_TABLE : GATHER_TABLE;
   const lootName = pickFromWeightedTiers(table.slice(2));
-  const item = await ItemService.findItemByName(lootName);
+  return ItemService.findItemByName(lootName);
+}
+
+async function grantRareLoot(userId: string): Promise<RareLoot | null> {
+  const item = await pickRareLootItem();
   if (!item) return null;
 
   const inventory = await prisma.inventory.upsert({
@@ -210,33 +222,68 @@ function getNextResetTime(date: Date): Date {
   return next;
 }
 
-export interface DungeonFloorResult {
+/** 資料庫裡那一列進行中的下潛 */
+type DungeonRunRow = DungeonRun;
+
+/** 未入袋的材料。戰敗會全部沒收，所以在帶著離開之前不會真的進背包 */
+export interface PendingLoot {
+  itemId: string;
+  name: string;
+  quantity: number;
+}
+
+/** 這次呼叫裡自動打過的每一層，給卡片摘要用 */
+export interface DungeonClearedFloor {
   floor: number;
   enemyName: string;
   enemyLevel: number;
-  result: "win" | "lose";
-  rounds: number;
-  xpGained: number;
-  goldGained: number;
-  rareLoot: RareLoot | null;
+  affix: DungeonAffix | null;
+  goldReward: number;
+  xpReward: number;
+  materialName: string | null;
   healthAfter: number;
-  healthDelta: number;
+  rounds: number;
 }
 
-export type DungeonResult =
+export type DungeonEnterResult =
   | { status: "not_started" }
   | { status: "cooldown"; remainingSeconds: number }
   | {
-      status: "completed";
-      floors: DungeonFloorResult[];
-      clearedAllFloors: boolean;
-      totalXpGained: number;
-      totalGoldGained: number;
-      completionBonusGold: number;
-      completionBonusXp: number;
+      status: "at_decision";
+      clearedFloors: number;
+      health: number;
+      maxHealth: number;
+      goldPending: number;
+      xpPending: number;
+      lootPending: PendingLoot[];
+      /** 已經擲好的下一層：玩家看到的存活率跟他真正要打的那層是同一個 */
+      nextFloor: DungeonFloorPlan;
+      survival: number;
+      autoCleared: DungeonClearedFloor[];
+    }
+  | {
+      status: "died";
+      clearedFloors: number;
+      deathFloor: DungeonFloorPlan;
+      /** 經驗不沒收 */
+      xpGained: number;
+      goldForfeited: number;
+      lootForfeited: PendingLoot[];
+      autoCleared: DungeonClearedFloor[];
+    };
+
+export type DungeonDescendResult = DungeonEnterResult | { status: "no_run" };
+
+export type DungeonLeaveResult =
+  | { status: "not_started" }
+  | { status: "no_run" }
+  | {
+      status: "left";
+      clearedFloors: number;
+      goldGained: number;
+      xpGained: number;
+      loot: PendingLoot[];
       user: User;
-      effectiveMaxHealth: number;
-      healthDelta: number;
     };
 
 export type FishResult =
@@ -554,19 +601,184 @@ export class RPGService {
     };
   }
 
-  // 一次指令連打 DUNGEON_FLOOR_COUNT 層，血量在層與層之間延續、不會回滿；
-  // 中途輸了就整趟結束，但已經過關那幾層的獎勵會保留（不會歸零重來），全部過關再加一筆完成獎勵
-  static async dungeon(discordUserId: string): Promise<DungeonResult> {
+  // ── 地下城：逐層下潛 ────────────────────────────────────────
+  // 舊版是「一次指令連打 4 層」，實測難度是階梯函數而不是曲線（見 PRD 第 22 節）：
+  // 鯨魚每 5 分鐘零風險全破、新手 0% 全破直接撞牆。改成玩家自己決定要往下走多深，
+  // 存活率高於門檻時自動打（不打擾），跌破才停下來問——每一次問都是真實的取捨。
+  //
+  // 血量是沙盒的：進場滿血、離場回復成進場前的值。趟內不回血，血量就是下潛的燃料。
+
+  /** 把一趟的現況整理成呼叫端要顯示的樣子，並即時算出「下一層」的存活率 */
+  private static describeRun(
+    run: DungeonRunRow,
+    stats: EffectiveStats,
+    autoCleared: DungeonClearedFloor[]
+  ): Extract<DungeonEnterResult, { status: "at_decision" }> {
+    const nextFloor = run.nextFloor as unknown as DungeonFloorPlan;
+    return {
+      status: "at_decision",
+      clearedFloors: run.clearedFloors,
+      health: run.health,
+      maxHealth: run.maxHealth,
+      goldPending: run.goldPending,
+      xpPending: run.xpPending,
+      lootPending: run.lootPending as unknown as PendingLoot[],
+      nextFloor,
+      survival: estimateSurvival(stats, nextFloor.enemy, run.health),
+      autoCleared,
+    };
+  }
+
+  /**
+   * 打掉已經擲好的那一層，然後在安全的範圍內繼續自動下潛。
+   * 回傳「停在決策點」或「死了」。dungeonEnter 跟 dungeonDescend 共用這一段。
+   */
+  private static async runFloors(
+    user: User,
+    stats: EffectiveStats,
+    startRun: DungeonRunRow,
+    fightFirst: boolean
+  ): Promise<DungeonEnterResult> {
+    let current = startRun;
+    let shouldFight = fightFirst;
+    const autoCleared: DungeonClearedFloor[] = [];
+
+    for (;;) {
+      const plan = current.nextFloor as unknown as DungeonFloorPlan;
+
+      if (!shouldFight) {
+        // 還沒打過這層：存活率夠高就自動打下去，否則停下來問玩家
+        const survival = estimateSurvival(stats, plan.enemy, current.health);
+        if (survival < AUTO_DESCEND_SURVIVAL_THRESHOLD || plan.floor > MAX_DUNGEON_FLOOR) {
+          return this.describeRun(current, stats, autoCleared);
+        }
+      }
+      shouldFight = false;
+
+      const combat = simulateCombat(stats, plan.enemy, current.health);
+
+      if (combat.result === "lose") {
+        // 未入袋的金幣與材料全部沒收，經驗保留——經驗是「你花了這段時間」的證明，不是賭注
+        const xpGained = current.xpPending;
+        const goldForfeited = current.goldPending;
+        const lootForfeited = current.lootPending as unknown as PendingLoot[];
+        await this.settleRun(user, current, { gold: 0, xp: xpGained });
+        return {
+          status: "died",
+          clearedFloors: current.clearedFloors,
+          deathFloor: plan,
+          xpGained,
+          goldForfeited,
+          lootForfeited,
+          autoCleared,
+        };
+      }
+
+      // 過關：獎勵先進「未入袋」的暫存，帶著離開才真的入袋
+      const material = plan.givesMaterial ? await pickRareLootItem() : null;
+      const lootPending = current.lootPending as unknown as PendingLoot[];
+      const nextPlan = rollDungeonFloor(user.level, plan.floor + 1);
+      const newLoot = material
+        ? [...lootPending, { itemId: material.id, name: material.name, quantity: 1 }]
+        : lootPending;
+
+      // conditional update：層數必須還是我們讀到的那個值，兩邊同時按不會把同一層結算兩次
+      const advanced = await prisma.dungeonRun.updateMany({
+        where: { id: current.id, clearedFloors: current.clearedFloors },
+        data: {
+          clearedFloors: plan.floor,
+          health: combat.finalHealth,
+          goldPending: current.goldPending + plan.goldReward,
+          xpPending: current.xpPending + plan.xpReward,
+          lootPending: newLoot as unknown as Prisma.InputJsonValue,
+          nextFloor: nextPlan as unknown as Prisma.InputJsonValue,
+        },
+      });
+      if (advanced.count === 0) {
+        throw new PlayerNotice("這一層剛剛已經被結算過了，請重新查看目前進度");
+      }
+
+      autoCleared.push({
+        floor: plan.floor,
+        enemyName: plan.enemy.name,
+        enemyLevel: plan.enemy.level,
+        affix: plan.affix,
+        goldReward: plan.goldReward,
+        xpReward: plan.xpReward,
+        materialName: material?.name ?? null,
+        healthAfter: combat.finalHealth,
+        rounds: combat.rounds,
+      });
+
+      current = await prisma.dungeonRun.findUniqueOrThrow({ where: { id: current.id } });
+    }
+  }
+
+  /** 結束一趟：把該給的獎勵入袋、血量回復進場前的值、刪掉這趟 */
+  private static async settleRun(
+    user: User,
+    run: DungeonRunRow,
+    payout: { gold: number; xp: number },
+    loot: PendingLoot[] = []
+  ): Promise<User> {
+    return prisma.$transaction(async (tx) => {
+      for (const entry of loot) {
+        await tx.inventory.upsert({
+          where: { userId_itemId: { userId: user.id, itemId: entry.itemId } },
+          create: { userId: user.id, itemId: entry.itemId, quantity: entry.quantity },
+          update: { quantity: { increment: entry.quantity } },
+        });
+      }
+
+      const { statIncrements, newMaxHealth } = computeLevelUp(
+        user.level,
+        user.xp + payout.xp,
+        run.maxHealth
+      );
+
+      const updated = await tx.user.update({
+        where: { id: user.id },
+        data: {
+          gold: { increment: payout.gold },
+          xp: { increment: payout.xp },
+          ...statIncrements,
+          // 沙盒：趟內的消耗不外洩，回到進場前的血量（升級的話不超過新上限）
+          health: Math.min(run.healthBefore, newMaxHealth),
+        },
+      });
+
+      await tx.dungeonRun.deleteMany({ where: { id: run.id } });
+      return updated;
+    });
+  }
+
+  /**
+   * 進入地下城。有未完成的趟就回到那一趟（不重開、也不再扣一次冷卻），
+   * 否則搶冷卻並開新的一趟，然後自動下潛到第一個真正的決策點。
+   */
+  static async dungeonEnter(discordUserId: string): Promise<DungeonEnterResult> {
     const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
     if (!user) return { status: "not_started" };
 
-    // 先搶冷卻再跑地下城：同樣的道理，避免「再次挑戰」連點兩下繞過 5 分鐘冷卻
+    const stats = await ItemService.getEffectiveStats(user.id, {
+      attack: user.attack,
+      defense: user.defense,
+      maxHealth: user.maxHealth,
+    });
+
+    const existing = await prisma.dungeonRun.findUnique({ where: { userId: user.id } });
+    if (existing) {
+      // 未完成的趟隨時可以回來繼續，不會過期、也不再扣一次冷卻
+      return this.describeRun(existing, stats, []);
+    }
+
+    // 先搶冷卻再開趟，避免連點兩下開出兩趟
     const dungeonCutoff = new Date(Date.now() - DUNGEON_COOLDOWN_MS);
-    const claimedDungeon = await prisma.user.updateMany({
+    const claimed = await prisma.user.updateMany({
       where: { id: user.id, OR: [{ lastDungeon: null }, { lastDungeon: { lt: dungeonCutoff } }] },
       data: { lastDungeon: new Date() },
     });
-    if (claimedDungeon.count === 0) {
+    if (claimed.count === 0) {
       const elapsed = Date.now() - new Date(user.lastDungeon!).getTime();
       return {
         status: "cooldown",
@@ -574,117 +786,61 @@ export class RPGService {
       };
     }
 
-    const effectiveStats = await ItemService.getEffectiveStats(user.id, {
+    const run = await prisma.dungeonRun.create({
+      data: {
+        userId: user.id,
+        clearedFloors: 0,
+        health: stats.maxHealth, // 進場一律滿血
+        maxHealth: stats.maxHealth,
+        healthBefore: user.health,
+        lootPending: [] as unknown as Prisma.InputJsonValue,
+        nextFloor: rollDungeonFloor(user.level, 1) as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    return this.runFloors(user, stats, run, false);
+  }
+
+  /** 玩家按下「繼續下潛」：打掉眼前那一層，然後在安全範圍內繼續自動走 */
+  static async dungeonDescend(discordUserId: string): Promise<DungeonDescendResult> {
+    const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
+    if (!user) return { status: "not_started" };
+
+    const run = await prisma.dungeonRun.findUnique({ where: { userId: user.id } });
+    if (!run) return { status: "no_run" };
+
+    const stats = await ItemService.getEffectiveStats(user.id, {
       attack: user.attack,
       defense: user.defense,
       maxHealth: user.maxHealth,
     });
 
-    const floors: DungeonFloorResult[] = [];
-    let currentHealth = user.health;
-    let totalXpGained = 0;
-    let totalGoldGained = 0;
-    let clearedAllFloors = true;
+    return this.runFloors(user, stats, run, true);
+  }
 
-    for (let floor = 1; floor <= DUNGEON_FLOOR_COUNT; floor++) {
-      const healthBeforeFloor = currentHealth;
-      const isBoss = floor === DUNGEON_FLOOR_COUNT;
-      // 每層比上一層高兩級左右，最後一層是額外加成的 boss
-      const baseLevel = Math.max(1, user.level - 2 + (floor - 1) * 2 + randomInt(0, 3));
-      const enemy = rollEnemy(baseLevel, isBoss ? DUNGEON_BOSS_TYPES : ENEMY_TYPES);
-      if (isBoss) {
-        enemy.health = Math.round(enemy.health * 1.55);
-        enemy.attack = Math.round(enemy.attack * 1.33);
-      }
+  /** 玩家按下「帶著戰利品離開」：未入袋的東西全部入袋，這趟結束 */
+  static async dungeonLeave(discordUserId: string): Promise<DungeonLeaveResult> {
+    const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
+    if (!user) return { status: "not_started" };
 
-      const { result, finalHealth, rounds } = simulateCombat(effectiveStats, enemy, currentHealth);
+    const run = await prisma.dungeonRun.findUnique({ where: { userId: user.id } });
+    if (!run) return { status: "no_run" };
 
-      let xpGained: number;
-      let goldGained = 0;
-      let rareLoot: RareLoot | null = null;
-      if (result === "win") {
-        xpGained = Math.round((10 + enemy.level * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100));
-        goldGained = Math.round((5 + enemy.level * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100));
-        // 過關跟 battle() 贏了一樣小回血，但封頂在裝備加成後的上限（等級提升要等整趟結束才結算）
-        currentHealth = healOnWin(finalHealth, effectiveStats.maxHealth);
-        // boss 層（第 4 層）打贏保證掉一件；前 3 層打贏「第一次」也保證掉一件（固定發生在第 1 層，
-        // 因為要打到第 2、3 層一定要先贏第 1 層），全破的話等於前 3 層 1 件 + boss 1 件、共 2 件
-        if (isBoss || floor === 1) {
-          rareLoot = await grantRareLoot(user.id);
-        }
-      } else {
-        xpGained = Math.max(1, Math.round(enemy.level * 2 * (1 + effectiveStats.xpBonus / 100)));
-        // 輸的話跟 battle() 一樣血量掉到有效上限的 30%，整趟到此結束
-        currentHealth = lossHealthFloor(effectiveStats.maxHealth, user.level);
-      }
-
-      totalXpGained += xpGained;
-      totalGoldGained += goldGained;
-      floors.push({
-        floor,
-        enemyName: enemy.name,
-        enemyLevel: enemy.level,
-        result,
-        rounds,
-        xpGained,
-        goldGained,
-        rareLoot,
-        healthAfter: currentHealth,
-        healthDelta: currentHealth - healthBeforeFloor,
-      });
-
-      if (result === "lose") {
-        clearedAllFloors = false;
-        break;
-      }
-    }
-
-    let completionBonusGold = 0;
-    let completionBonusXp = 0;
-    if (clearedAllFloors) {
-      completionBonusGold = 100 + user.level * 10;
-      completionBonusXp = 50 + user.level * 5;
-      totalGoldGained += completionBonusGold;
-      totalXpGained += completionBonusXp;
-    }
-
-    const { levelsGained, newMaxHealth, statIncrements } = computeLevelUp(
-      user.level,
-      user.xp + totalXpGained,
-      effectiveStats.maxHealth
+    const loot = run.lootPending as unknown as PendingLoot[];
+    const updated = await this.settleRun(
+      user,
+      run,
+      { gold: run.goldPending, xp: run.xpPending },
+      loot
     );
-    const effectiveMaxHealth = newMaxHealth;
-    // 整趟用落敗收尾的話，就算安慰經驗值剛好湊到升級門檻，血量還是要照落敗懲罰砍到（新）上限的下限比例，
-    // 不能讓升級的全滿血蓋掉這次的敗北；只有全破才會用升級的全滿血
-    const finalHealthValue = !clearedAllFloors
-      ? lossHealthFloor(effectiveMaxHealth, user.level)
-      : levelsGained > 0
-        ? newMaxHealth
-        : Math.min(currentHealth, effectiveMaxHealth);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        xp: { increment: totalXpGained },
-        gold: { increment: totalGoldGained },
-        ...statIncrements,
-        health: finalHealthValue,
-      },
-    });
-
-    const updatedUser = (await prisma.user.findUnique({ where: { userId: discordUserId } })) as User;
 
     return {
-      status: "completed",
-      floors,
-      clearedAllFloors,
-      totalXpGained,
-      totalGoldGained,
-      completionBonusGold,
-      completionBonusXp,
-      user: updatedUser,
-      effectiveMaxHealth,
-      healthDelta: updatedUser.health - user.health,
+      status: "left",
+      clearedFloors: run.clearedFloors,
+      goldGained: run.goldPending,
+      xpGained: run.xpPending,
+      loot,
+      user: updated,
     };
   }
 
