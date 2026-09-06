@@ -96,7 +96,7 @@ export function healOnWin(currentHealth: number, maxHealth: number): number {
 // Lv6 回到 29%／46%，Lv15 以後維持原本的 30%）。
 //
 // 注意這裡只處理「場內連續作戰」的螺旋。「昨天輸了今天回來還是殘血」是另一個獨立的軸，
-// 要靠離線回血之類的機制解，不在這個函式的範圍內。
+// 由下面的 offlineRegen() 處理。
 const LOSS_FLOOR_MAX_RATIO = 0.8; // Lv5 以下
 const LOSS_FLOOR_MIN_RATIO = 0.3; // Lv15 以上
 const LOSS_FLOOR_RAMP_START_LEVEL = 5;
@@ -115,6 +115,49 @@ export function lossHealthFloor(maxHealth: number, userLevel: number): number {
     ratio = LOSS_FLOOR_MAX_RATIO - progress * (LOSS_FLOOR_MAX_RATIO - LOSS_FLOOR_MIN_RATIO);
   }
   return Math.max(10, Math.floor(maxHealth * ratio));
+}
+
+// ── 離線回血 ────────────────────────────────────────────────
+// 上面那條「場內螺旋」由 lossHealthFloor 擋住，但「昨天輸了、今天回來還是殘血」是另一條軸：
+// 沒有隨時間恢復的話，玩家唯一的回血管道是簽到（+30%）跟打贏（+15%），而打贏本身就需要血。
+//
+// 速率錨點刻意綁在 LOSS_FLOOR_MIN_RATIO 上：從落敗保底回到滿血花 8 小時（睡一覺）。
+// 選 8 小時而不是更快，是為了只解決「跨天」那條軸、不去動場內平衡——連續遊玩時每小時
+// 只回 8.75%，該喝藥水還是得喝。
+//
+// 上線時（2026-09-06）四個玩家都在有效上限的 98~100%，也就是說這個問題當下並不存在，
+// 這是預防性的。沒有可以驗證速率的訊號，之後要調的話唯一的依據是玩家反映。
+export const OFFLINE_REGEN_TO_FULL_HOURS = 8;
+export const OFFLINE_REGEN_PER_HOUR_RATIO = (1 - LOSS_FLOOR_MIN_RATIO) / OFFLINE_REGEN_TO_FULL_HOURS;
+
+const MS_PER_HOUR = 60 * 60 * 1000;
+
+/**
+ * 離線 elapsedMs 之後應該回多少血。
+ *
+ * **回傳 0 有兩種意思，呼叫端要一起處理**：已經滿血，或是時間短到連 1 點都不到。
+ * 後者是個陷阱——上限 120 的新手每小時只回 10.5 點，每兩分鐘下一個指令就是 0.35 點，
+ * 如果呼叫端照樣把「上次回血時間」推到現在，他永遠不會回血。算出 0 就別動那個時間戳。
+ */
+export function offlineRegen(
+  currentHealth: number,
+  effectiveMaxHealth: number,
+  elapsedMs: number
+): number {
+  if (currentHealth >= effectiveMaxHealth) return 0;
+  if (elapsedMs <= 0) return 0;
+
+  const hours = elapsedMs / MS_PER_HOUR;
+  const gain = Math.floor(effectiveMaxHealth * OFFLINE_REGEN_PER_HOUR_RATIO * hours);
+  return Math.min(gain, effectiveMaxHealth - currentHealth);
+}
+
+/** 從現在的血量回到滿血還要多少毫秒；已經滿血回 0 */
+export function msUntilFullHealth(currentHealth: number, effectiveMaxHealth: number): number {
+  if (currentHealth >= effectiveMaxHealth) return 0;
+  const missing = effectiveMaxHealth - currentHealth;
+  const perHour = effectiveMaxHealth * OFFLINE_REGEN_PER_HOUR_RATIO;
+  return Math.ceil((missing / perHour) * MS_PER_HOUR);
 }
 
 // ── 等級成長 ────────────────────────────────────────────────

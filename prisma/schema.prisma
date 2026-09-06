@@ -29,6 +29,8 @@ model User {
   lastDungeon   DateTime? // 上次挑戰地下城時間
   loginStreak   Int      @default(0) // 連續登入天數
   lastStreakDate String?  // 上次連續登入的日期 (YYYY-MM-DD)
+  /// 上次結算離線回血的時間。null 代表還沒算過（既有玩家部署後第一次觸碰時設成當下，不追溯發放）
+  lastHealthTick DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
