@@ -64,6 +64,20 @@ function buildDecisionRow(ownerId: string, survivalPercent: number): ActionRowBu
   );
 }
 
+/**
+ * 一趟結束（帶著離開或戰敗）之後的「再次挑戰」。
+ * 跟其他重試按鈕一樣把冷卻標在標籤上——按得下去，太早按就給提示而不是錯誤。
+ */
+function buildDungeonAgainRow(ownerId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(buildCustomId("dungeon_again", ownerId))
+      .setLabel(`再次挑戰（冷卻 ${formatCooldown(DUNGEON_COOLDOWN_MS)}）`)
+      .setEmoji("🏰")
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
 /** 停在決策點的卡片：把這次自動打過的層、目前未入袋的東西、下一層的風險全部攤開 */
 function buildDecisionReply(
   username: string,
@@ -109,6 +123,7 @@ function buildDecisionReply(
 function buildDeathReply(
   username: string,
   avatarURL: string,
+  ownerId: string,
   result: Extract<DungeonEnterResult, { status: "died" }>
 ) {
   const embed = new EmbedBuilder()
@@ -136,7 +151,7 @@ function buildDeathReply(
   );
 
   embed.setFooter({ text: `總共下潛了 ${result.clearedFloors} 層` });
-  return { embeds: [embed], components: [] };
+  return { embeds: [embed], components: [buildDungeonAgainRow(ownerId)] };
 }
 
 async function buildReply(
@@ -155,7 +170,7 @@ async function buildReply(
     case "at_decision":
       return buildDecisionReply(username, avatarURL, discordUserId, result);
     case "died":
-      return buildDeathReply(username, avatarURL, result);
+      return buildDeathReply(username, avatarURL, discordUserId, result);
   }
 }
 
@@ -202,6 +217,29 @@ async function handleRunButton(
   }
 }
 
+// 開新的一趟會發新訊息、不動原本那張結算卡片：那張是「這趟的結果」，
+// 被下一趟蓋掉的話玩家就看不到自己剛剛帶走了什麼
+export async function handleDungeonAgainButton(interaction: ButtonInteraction) {
+  const { ownerId } = parseCustomId(interaction.customId);
+  if (!(await requireInteractionOwner(interaction, ownerId))) return;
+
+  await interaction.deferReply();
+  try {
+    const result = await RPGService.dungeonEnter(interaction.user.id);
+    const payload = await buildReply(
+      interaction.user.id,
+      interaction.user.username,
+      interaction.user.displayAvatarURL(),
+      result
+    );
+    await interaction.editReply(payload);
+  } catch (error) {
+    await interaction.deleteReply();
+    const message = describeCommandError("地下城「再次挑戰」按鈕錯誤", error);
+    await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
+  }
+}
+
 export async function handleDungeonDescendButton(interaction: ButtonInteraction) {
   return handleRunButton(interaction, (id) => RPGService.dungeonDescend(id), "地下城下潛按鈕錯誤");
 }
@@ -237,7 +275,10 @@ export async function handleDungeonLeaveButton(interaction: ButtonInteraction) {
       )
       .setFooter({ text: `目前金幣 ${result.user.gold}・冷卻 ${formatCooldown(DUNGEON_COOLDOWN_MS)}` });
 
-    await interaction.editReply({ embeds: [embed], components: [] });
+    await interaction.editReply({
+      embeds: [embed],
+      components: [buildDungeonAgainRow(ownerId)],
+    });
   } catch (error) {
     const message = describeCommandError("地下城離開按鈕錯誤", error);
     await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });

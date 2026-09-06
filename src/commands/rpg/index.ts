@@ -22,6 +22,7 @@ import {
 import { handleBattleCommand, handleBattleRematchButton } from "./battle";
 import {
   handleDungeonCommand,
+  handleDungeonAgainButton,
   handleDungeonDescendButton,
   handleDungeonLeaveButton,
 } from "./dungeon";
@@ -48,6 +49,7 @@ import type { Command } from "../index";
 // 按鈕/選單 handler、buildDailyRewardEmbed 給 interactionCreate.ts、voiceStateUpdate.ts 用
 export {
   handleBattleRematchButton,
+  handleDungeonAgainButton,
   handleDungeonDescendButton,
   handleDungeonLeaveButton,
   handleFishRetryButton,
