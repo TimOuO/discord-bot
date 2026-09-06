@@ -36,6 +36,7 @@ model User {
   inventory     Inventory[]
   itemInstances ItemInstance[]
   equipped      EquippedItem[]
+  dungeonRun    DungeonRun?
 }
 
 // 物品模型
@@ -111,4 +112,38 @@ model EquippedItem {
   instance ItemInstance @relation(fields: [itemInstanceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, slot])
+}
+
+// 一趟還沒結束的地下城下潛。一個玩家最多一趟（userId @unique），
+// 未完成的趟可以隨時回來繼續或帶著戰利品離開，不會過期。
+//
+// 為什麼存資料庫而不是記憶體：這個專案的互動一律無狀態、資料即時查，
+// 而且現在每天約 6 次部署重啟——玩家打到第 8 層時遇到部署，未入袋的戰利品會直接蒸發。
+model DungeonRun {
+  id     String @id @default(uuid())
+  userId String @unique
+
+  /// 已經打完的層數；0 代表剛開始、還沒打第一層
+  clearedFloors Int @default(0)
+  /// 這趟目前的血量。層與層之間不回血，血量就是下潛的燃料
+  health        Int
+  /// 進場當下的有效生命上限，存起來免得中途換裝把基準改掉
+  maxHealth     Int
+  /// 進場前的血量，離場時回復成這個值（地下城是獨立的一趟，消耗只在趟內生效）
+  healthBefore  Int
+
+  /// 未入袋的戰利品，戰敗就全部沒收
+  goldPending Int  @default(0)
+  /// 經驗不沒收，但一樣累積到離場或戰敗時才結算
+  xpPending   Int  @default(0)
+  /// 未入袋的材料，[{ "itemId": "...", "name": "...", "quantity": n }]
+  lootPending Json
+
+  /// 已經擲好的下一層，玩家看到的存活率跟他真正要打的那層是同一個
+  nextFloor Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
