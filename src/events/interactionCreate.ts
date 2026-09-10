@@ -34,11 +34,13 @@ import {
   handleCraftListPageButton,
   handleCraftListSelect,
   handleCraftMakeButton,
+  handleJobPickButton,
 } from "../commands/rpg";
 
 // customId 前綴對應到的按鈕處理函式；新增按鈕時在這裡註冊就好
 const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promise<void>> = {
   battle_rematch: handleBattleRematchButton,
+  job_pick: handleJobPickButton,
   dungeon_again: handleDungeonAgainButton,
   dungeon_descend: handleDungeonDescendButton,
   dungeon_leave: handleDungeonLeaveButton,

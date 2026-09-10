@@ -4,6 +4,7 @@ import { msUntilFullHealth } from "../../services/combat";
 import { formatCooldown } from "../../utils/datetime";
 import { ItemService, ACCESSORY_SLOTS } from "../../services/itemService";
 import { effectiveStatsFields } from "./statsFields";
+import { jobLabelFor } from "./job";
 import { sectionField, chip, progressBar } from "../../utils/embeds";
 
 export async function handleStartCommand(interaction: ChatInputCommandInteraction) {
@@ -90,6 +91,7 @@ export async function handleProfileCommand(interaction: ChatInputCommandInteract
       .setDescription(regen.healed > 0 ? `💤 離線期間回復了 ${regen.healed} 點生命。` : null)
       .addFields(
         sectionField("📊", "角色狀態", [
+          `職業 ${chip(jobLabelFor(user.job))}`,
           `等級 ${chip(user.level)}（經驗 ${chip(`${user.xp}/${xpThresholdForLevel(user.level)}`)}）`,
           `生命值 ${progressBar(regen.health, effectiveStats.maxHealth)} ${chip(`${regen.health}/${effectiveStats.maxHealth}`)}`,
           // 資訊只在能改變決定時才出現：滿血就不用多講，殘血才需要知道「要不要等一下再打」

@@ -37,6 +37,7 @@ import {
   handleCraftMakeButton,
 } from "./craft";
 import { handleUseCommand, useAutocomplete } from "./items";
+import { handleJobCommand, handleJobPickButton } from "./job";
 import {
   handleShopCommand,
   handleShopPageButton,
@@ -75,6 +76,7 @@ export {
   handleCraftListPageButton,
   handleCraftListSelect,
   handleCraftMakeButton,
+  handleJobPickButton,
   buildDailyRewardEmbed,
 };
 
@@ -141,6 +143,9 @@ export default {
         )
     )
     .addSubcommand((subcommand) =>
+      subcommand.setName("job").setDescription("職業殿堂：Lv30 之後可以選一個職業，被動會改變一個系統的規則")
+    )
+    .addSubcommand((subcommand) =>
       subcommand.setName("shop").setDescription("商店：瀏覽、購買道具（用選單+按鈕操作，可選數量）")
     ),
 
@@ -170,6 +175,8 @@ export default {
         return handleCraftCommand(interaction);
       case "use":
         return handleUseCommand(interaction);
+      case "job":
+        return handleJobCommand(interaction);
       case "shop":
         return handleShopCommand(interaction);
       default:
