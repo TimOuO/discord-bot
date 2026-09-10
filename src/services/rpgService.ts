@@ -28,6 +28,7 @@ import {
   gatherRollCount,
   harvestEmptyChanceOverride,
   isJobKey,
+  maxBattleStreak,
   JOB_CHANGE_COST,
   JOB_UNLOCK_LEVEL,
   type JobKey,
@@ -37,6 +38,14 @@ import {
 export { xpThresholdForLevel };
 
 export const BATTLE_COOLDOWN_MS = 30 * 1000;
+/**
+ * 血戰鬥神連戰結束之後的冷卻。刻意比 5 場 × 30 秒還短一點：
+ * 連戰不是懲罰，換算下來是每小時 150 場（一般人 120 場）。
+ * 但也不能維持 30 秒——那會讓材料水龍頭直接開 5 倍。
+ */
+export const BERSERKER_COOLDOWN_MS = 2 * 60 * 1000;
+/** 連戰每往下一場，敵人加幾級 */
+const BERSERKER_ENEMY_LEVEL_PER_FIGHT = 3;
 export const DUNGEON_COOLDOWN_MS = 5 * 60 * 1000;
 const DUNGEON_FLOOR_COUNT = 4;
 
@@ -150,8 +159,16 @@ async function grantRareLoot(userId: string): Promise<RareLoot | null> {
 async function rollBattleBonusEvent(
   user: User,
   effectiveStats: EffectiveStats,
-  currentHealth: number
-): Promise<{ events: BattleBonusEvent[]; xpGained: number; goldGained: number; finalHealth: number }> {
+  currentHealth: number,
+  // 血戰鬥神連戰的最後一場：整趟還沒遇到菁英怪的話，這場強制出現（「保證遭遇一次」的兜底）
+  forceElite = false
+): Promise<{
+  events: BattleBonusEvent[];
+  xpGained: number;
+  goldGained: number;
+  finalHealth: number;
+  eliteAppeared: boolean;
+}> {
   const events: BattleBonusEvent[] = [];
   let xpGained = 0;
   let goldGained = 0;
@@ -179,7 +196,8 @@ async function rollBattleBonusEvent(
     }
   }
 
-  if (randomChance(BATTLE_ELITE_EVENT_CHANCE)) {
+  const eliteAppeared = forceElite || randomChance(BATTLE_ELITE_EVENT_CHANCE);
+  if (eliteAppeared) {
     const eliteLevel = Math.max(1, user.level + 2 + randomInt(0, 3));
     const enemy = rollEnemy(eliteLevel, ELITE_ENEMY_TYPES);
     // 菁英怪比一般敵人明顯更強，不是隨便就能打贏的額外戰鬥
@@ -214,7 +232,7 @@ async function rollBattleBonusEvent(
     });
   }
 
-  return { events, xpGained, goldGained, finalHealth };
+  return { events, xpGained, goldGained, finalHealth, eliteAppeared };
 }
 
 
@@ -449,6 +467,11 @@ export class RPGService {
         job,
         jobChangedOnce: true,
         gold: { decrement: cost },
+        // 連戰狀態必須跟著清掉：連戰中途換成別的職業的話，battleStreak 會停在 >0
+        // 但上限變回 1，兩條路徑都進不去（搶冷卻那條的 where 要求 battleStreak: 0），
+        // 玩家會被永久鎖住打不了架
+        battleStreak: 0,
+        streakEliteFired: false,
       },
     });
     if (claimed.count === 0) {
@@ -574,6 +597,10 @@ export class RPGService {
     message: string;
     bonusEvents: BattleBonusEvent[];
     bonusLevelsGained: number;
+    /** 這一場打完之後的連戰場次（0 = 沒有進行中的連戰） */
+    battleStreak: number;
+    /** 這個職業一次冷卻內最多能打幾場（1 = 沒有連戰） */
+    streakLimit: number;
   }> {
     let user = await prisma.user.findUnique({
       where: { userId },
@@ -589,18 +616,40 @@ export class RPGService {
       user = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     }
 
-    // 先搶冷卻再算戰鬥：where 直接帶「還沒打過或已經過冷卻」的條件，count 是 0 就代表被搶輸了，
-    // 不會有兩個併發請求都通過「讀出來的 lastBattle 還沒過期」檢查、都跑完戰鬥的競態
-    const battleCutoff = new Date(Date.now() - BATTLE_COOLDOWN_MS);
-    const claimedBattle = await prisma.user.updateMany({
-      where: { id: user.id, OR: [{ lastBattle: null }, { lastBattle: { lt: battleCutoff } }] },
-      data: { lastBattle: new Date() },
-    });
-    if (claimedBattle.count === 0) {
-      const remainingTime = Math.ceil(
-        (BATTLE_COOLDOWN_MS - (Date.now() - new Date(user.lastBattle!).getTime())) / 1000
-      );
-      throw new PlayerNotice(`⏳ 戰鬥冷卻中，還要等 ${formatCooldown(remainingTime * 1000)}。`);
+    const job = isJobKey(user.job) ? user.job : null;
+    const streakLimit = maxBattleStreak(job);
+    // 連戰進行中（贏了但還沒連滿）就不用等冷卻，那正是血戰鬥神的被動
+    const continuingStreak = user.battleStreak > 0 && user.battleStreak < streakLimit;
+    const cooldownMs = streakLimit > 1 ? BERSERKER_COOLDOWN_MS : BATTLE_COOLDOWN_MS;
+
+    if (!continuingStreak) {
+      // 先搶冷卻再算戰鬥：where 直接帶「還沒打過或已經過冷卻」的條件，count 是 0 就代表被搶輸了，
+      // 不會有兩個併發請求都通過「讀出來的 lastBattle 還沒過期」檢查、都跑完戰鬥的競態。
+      // 連戰的第一場也要搶，之後幾場靠 battleStreak 的 conditional update 擋重複
+      const battleCutoff = new Date(Date.now() - cooldownMs);
+      const claimedBattle = await prisma.user.updateMany({
+        where: {
+          id: user.id,
+          battleStreak: 0,
+          OR: [{ lastBattle: null }, { lastBattle: { lt: battleCutoff } }],
+        },
+        data: { lastBattle: new Date() },
+      });
+      if (claimedBattle.count === 0) {
+        const remainingTime = Math.ceil(
+          (cooldownMs - (Date.now() - new Date(user.lastBattle!).getTime())) / 1000
+        );
+        throw new PlayerNotice(`⏳ 戰鬥冷卻中，還要等 ${formatCooldown(remainingTime * 1000)}。`);
+      }
+    } else {
+      // 連戰的第 2 場之後：用「連戰場次還是我們讀到的那個」把連點兩下擋掉
+      const claimedFight = await prisma.user.updateMany({
+        where: { id: user.id, battleStreak: user.battleStreak },
+        data: { battleStreak: { increment: 0 } },
+      });
+      if (claimedFight.count === 0) {
+        throw new PlayerNotice("這一場剛剛已經打過了，請重新查看目前狀態");
+      }
     }
 
     // 有效屬性 = 基礎屬性 + 目前裝備加成，戰鬥傷害要用有效屬性計算，裝備才會真正影響戰鬥
@@ -610,7 +659,9 @@ export class RPGService {
       maxHealth: user.maxHealth,
     });
 
-    const enemy = rollEnemy(rollEnemyLevel(user.level), ENEMY_TYPES);
+    // 連戰越打越深：每一場敵人 +3 級，所以連戰不是無限的免費場次
+    const streakBonusLevel = user.battleStreak * BERSERKER_ENEMY_LEVEL_PER_FIGHT;
+    const enemy = rollEnemy(rollEnemyLevel(user.level) + streakBonusLevel, ENEMY_TYPES);
     const enemyName = enemy.name;
     const enemyLevel = enemy.level;
     const enemyHealth = enemy.health;
@@ -684,6 +735,7 @@ export class RPGService {
     let finalUser = updatedUser;
     let finalEffectiveMaxHealth = effectiveMaxHealth;
     let bonusLevelsGained = 0;
+    let eliteAppearedThisFight = false;
 
     if (result === "win") {
       const postBattleStats = await ItemService.getEffectiveStats(updatedUser.id, {
@@ -691,7 +743,17 @@ export class RPGService {
         defense: updatedUser.defense,
         maxHealth: updatedUser.maxHealth,
       });
-      const bonus = await rollBattleBonusEvent(updatedUser, postBattleStats, updatedUser.health);
+      // 連戰的最後一場而且整趟都還沒遇到菁英怪 → 強制出現，這是「保證遭遇一次」的兜底。
+      // 平常的 20% 擲骰照舊，所以一趟可能不只一隻
+      const isFinalStreakFight = streakLimit > 1 && user.battleStreak + 1 >= streakLimit;
+      const forceElite = isFinalStreakFight && !user.streakEliteFired;
+      const bonus = await rollBattleBonusEvent(
+        updatedUser,
+        postBattleStats,
+        updatedUser.health,
+        forceElite
+      );
+      eliteAppearedThisFight = bonus.eliteAppeared;
 
       if (bonus.events.length > 0) {
         bonusEvents = bonus.events;
@@ -734,6 +796,24 @@ export class RPGService {
       }
     }
 
+    // ── 連戰狀態 ──
+    // 贏了就往下累積，連滿或落敗就歸零並讓冷卻從現在開始算。
+    // lastBattle 在連戰期間不會被更新（第一場搶冷卻時寫過），所以冷卻是從整趟結束才起跳
+    if (streakLimit > 1) {
+      const nextStreak = result === "win" ? user.battleStreak + 1 : 0;
+      const streakEnded = result !== "win" || nextStreak >= streakLimit;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: streakEnded
+          ? { battleStreak: 0, streakEliteFired: false, lastBattle: new Date() }
+          : {
+              battleStreak: nextStreak,
+              streakEliteFired: user.streakEliteFired || eliteAppearedThisFight,
+            },
+      });
+      finalUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    }
+
     return {
       user: finalUser,
       enemyName,
@@ -748,6 +828,8 @@ export class RPGService {
       message,
       bonusEvents,
       bonusLevelsGained,
+      battleStreak: finalUser.battleStreak,
+      streakLimit,
     };
   }
 
