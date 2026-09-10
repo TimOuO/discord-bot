@@ -23,9 +23,8 @@ import { PlayerNotice, describeCommandError } from "../../utils/errors";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 import { sectionField } from "../../utils/embeds";
 
-/** 目前上線的職業。血戰鬥神的連戰要跨請求狀態，排在第二階段，所以先不開放 */
-const AVAILABLE_JOBS: readonly JobKey[] = ["delver", "smith", "forager"];
-const COMING_SOON: readonly JobKey[] = JOB_KEYS.filter((k) => !AVAILABLE_JOBS.includes(k));
+/** 四個職業全部上線 */
+const AVAILABLE_JOBS: readonly JobKey[] = JOB_KEYS;
 
 function buildJobRows(ownerId: string, currentJob: JobKey | null): ActionRowBuilder<ButtonBuilder>[] {
   const buttons = AVAILABLE_JOBS.map((key) =>
@@ -70,16 +69,6 @@ async function buildJobView(discordUserId: string, ownerId: string, username: st
       )
     )
   );
-
-  if (COMING_SOON.length > 0) {
-    embed.addFields(
-      ...COMING_SOON.map((key) =>
-        sectionField("🔒", `${JOB_LABELS[key]}（${JOB_SYSTEMS[key]}）・準備中`, [
-          JOB_DESCRIPTIONS[key],
-        ])
-      )
-    );
-  }
 
   embed.setFooter({
     text: unlocked

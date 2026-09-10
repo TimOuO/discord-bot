@@ -8,7 +8,12 @@ import {
   ColorResolvable,
   MessageFlags,
 } from "discord.js";
-import { RPGService, xpThresholdForLevel, BATTLE_COOLDOWN_MS } from "../../services/rpgService";
+import {
+  RPGService,
+  xpThresholdForLevel,
+  BATTLE_COOLDOWN_MS,
+  BERSERKER_COOLDOWN_MS,
+} from "../../services/rpgService";
 import { PlayerNotice, describeCommandError } from "../../utils/errors";
 import { formatCooldown } from "../../utils/datetime";
 import type { BattleBonusEvent } from "../../services/rpgService";
@@ -29,13 +34,24 @@ function formatBonusEvent(event: BattleBonusEvent): string {
   return `⚔️ 途中遭遇菁英「${event.enemyName}」Lv.${event.enemyLevel}，激戰 ${chip(event.rounds)} 回合後獲勝！經驗 +${chip(event.xpGained)}、金幣 +${chip(event.goldGained)}${rareLootNote}`;
 }
 
-function buildBattleRematchRow(ownerId: string): ActionRowBuilder<ButtonBuilder> {
+// 血戰鬥神在連戰中不用等冷卻，按鈕要講清楚現在是「連戰第幾場」而不是「冷卻多久」——
+// 標錯的話玩家會以為自己要等，白白放掉免費的場次
+function buildBattleRematchRow(
+  ownerId: string,
+  streak: number,
+  streakLimit: number
+): ActionRowBuilder<ButtonBuilder> {
+  const inStreak = streak > 0 && streak < streakLimit;
+  const label = inStreak
+    ? `繼續連戰（第 ${streak + 1}/${streakLimit} 場，敵人更強）`
+    : `再戰一次（冷卻 ${formatCooldown(streakLimit > 1 ? BERSERKER_COOLDOWN_MS : BATTLE_COOLDOWN_MS)}）`;
+
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`battle_rematch:${ownerId}`)
-      .setLabel(`再戰一次（冷卻 ${formatCooldown(BATTLE_COOLDOWN_MS)}）`)
-      .setEmoji("⚔️")
-      .setStyle(ButtonStyle.Primary)
+      .setLabel(label)
+      .setEmoji(inStreak ? "🔥" : "⚔️")
+      .setStyle(inStreak ? ButtonStyle.Danger : ButtonStyle.Primary)
   );
 }
 
@@ -73,7 +89,12 @@ async function runBattleAndBuildReply(userId: string, username: string, avatarUR
     embed.addFields(sectionField("👉", "下一步", [nextStep]));
   }
 
-  return { embeds: [embed], components: [buildBattleRematchRow(userId)] };
+  return {
+    embeds: [embed],
+    components: [
+      buildBattleRematchRow(userId, battleResult.battleStreak, battleResult.streakLimit),
+    ],
+  };
 }
 
 export async function handleBattleCommand(interaction: ChatInputCommandInteraction) {
