@@ -31,6 +31,15 @@ model User {
   lastStreakDate String?  // 上次連續登入的日期 (YYYY-MM-DD)
   /// 上次結算離線回血的時間。null 代表還沒算過（既有玩家部署後第一次觸碰時設成當下，不追溯發放）
   lastHealthTick DateTime?
+
+  /// 職業（jobs.ts 的 JobKey），null = 還沒轉職
+  job            String?
+  /// 已經免費轉職過沒；第一次免費，之後每次要付 JOB_CHANGE_COST
+  jobChangedOnce Boolean  @default(false)
+  /// 血戰鬥神的連戰：這一趟已經連贏幾場（0 = 沒有進行中的連戰）
+  battleStreak      Int     @default(0)
+  /// 這一趟連戰保證的那隻菁英怪出現過沒
+  streakEliteFired  Boolean @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
