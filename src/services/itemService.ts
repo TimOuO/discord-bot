@@ -1,6 +1,7 @@
 import { Item, Prisma } from "../generated/prisma";
 import { randomChance } from "../utils/random";
 import { PlayerNotice } from "../utils/errors";
+import { enhanceLevelLossFromOverride, type JobKey } from "./jobs";
 import prisma from "./dbService";
 
 export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2", "accessory3"] as const;
@@ -144,9 +145,12 @@ export function enhanceCost(item: Item): number {
   return Math.max(1, Math.round(item.cost * ENHANCE_COST_RATIO));
 }
 
-/** 強化失敗時會不會掉一級（+6 以上才會） */
-export function enhanceFailureDropsLevel(targetLevel: number): boolean {
-  return targetLevel >= ENHANCE_LEVEL_LOSS_FROM;
+/** 強化失敗時會不會掉一級（+6 以上才會）。星火匠神把門檻推到 +8 */
+export function enhanceFailureDropsLevel(
+  targetLevel: number,
+  job: JobKey | null = null
+): boolean {
+  return targetLevel >= (enhanceLevelLossFromOverride(job) ?? ENHANCE_LEVEL_LOSS_FROM);
 }
 
 // +6 以上除了金幣還要付材料。動機是金幣對後期玩家早就不是門檻（Lv74 的玩家握著 9 萬金幣、

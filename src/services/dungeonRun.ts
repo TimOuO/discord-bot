@@ -9,6 +9,7 @@
 import { simulateCombat, rollEnemy, type EnemyEncounter } from "./combat";
 import type { EffectiveStats } from "./itemService";
 import { randomInt, randomChance } from "../utils/random";
+import { dungeonMaterialIntervalOverride, type JobKey } from "./jobs";
 
 const ENEMY_TYPES = ["哥布林", "史萊姆", "骷髏戰士", "狼人", "山賊", "食人魔", "惡靈", "巨蜥"];
 const DEEP_ENEMY_TYPES = ["地城領主", "遠古巨龍", "深淵魔王", "屍骨君王", "熔岩巨人", "暗影統領"];
@@ -95,9 +96,10 @@ export function floorXp(floor: number): number {
   return Math.round(BASE_FLOOR_XP * (1 + (floor - 1) * 0.5));
 }
 
-/** 這一層給不給材料 */
-export function materialFloor(floor: number): boolean {
-  return floor % MATERIAL_EVERY_N_FLOORS === MATERIAL_FIRST_FLOOR % MATERIAL_EVERY_N_FLOORS;
+/** 這一層給不給材料。深淵掠者把間隔從 4 層縮成 3 層（第一件仍然落在第 2 層） */
+export function materialFloor(floor: number, job: JobKey | null = null): boolean {
+  const every = dungeonMaterialIntervalOverride(job) ?? MATERIAL_EVERY_N_FLOORS;
+  return floor % every === MATERIAL_FIRST_FLOOR % every;
 }
 
 /**
@@ -131,7 +133,11 @@ export interface DungeonFloorPlan {
  * 擲出第 N 層的內容。擲完會存進 DungeonRun，玩家看到的存活率跟他真正要打的那一層是同一個——
  * 不會出現「顯示 60%、按下去卻換成另一隻怪」。
  */
-export function rollDungeonFloor(userLevel: number, floor: number): DungeonFloorPlan {
+export function rollDungeonFloor(
+  userLevel: number,
+  floor: number,
+  job: JobKey | null = null
+): DungeonFloorPlan {
   const offset = randomInt(-ENEMY_LEVEL_SPREAD, ENEMY_LEVEL_SPREAD + 1);
   const level = dungeonEnemyLevel(userLevel, floor, offset);
   const namePool = floor >= DEEP_NAME_FROM_FLOOR ? DEEP_ENEMY_TYPES : ENEMY_TYPES;
@@ -153,6 +159,6 @@ export function rollDungeonFloor(userLevel: number, floor: number): DungeonFloor
     affix,
     goldReward: floorReward(floor),
     xpReward: floorXp(floor),
-    givesMaterial: materialFloor(floor),
+    givesMaterial: materialFloor(floor, job),
   };
 }

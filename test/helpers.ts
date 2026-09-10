@@ -62,3 +62,51 @@ export async function ownedCount(userInternalId: string, itemId: string): Promis
   ]);
   return (stack?.quantity ?? 0) + instances;
 }
+
+// 跟 rpgService.ts 的 FISH_TABLE/GATHER_TABLE 對應（含稀有度，順序一致）。
+// 放在共用 helper 而不是某個測試檔的 beforeAll：測試 DB 是整輪共用的，
+// 種在單一檔案裡的話，其他測試檔能不能抽到這些道具就取決於檔案的執行順序。
+export const FISH_TIERS = [
+  { rarity: "common", names: ["小魚乾", "泥鰍", "吳郭魚"] },
+  { rarity: "uncommon", names: ["虹鱒", "鯖魚", "花枝"] },
+  { rarity: "rare", names: ["銀鱗鮭", "龍虎斑", "紅魽"] },
+  { rarity: "epic", names: ["深海鮟鱇魚", "電鰻", "小鯊魚"] },
+  { rarity: "legendary", names: ["黃金鯉魚", "傳說錦鯉", "神秘魚王"] },
+];
+
+export const GATHER_TIERS = [
+  { rarity: "common", names: ["樹枝", "石頭", "麻繩"] },
+  { rarity: "uncommon", names: ["鐵礦", "煤炭", "硬木"] },
+  { rarity: "rare", names: ["銀礦", "玉石", "陳年木材"] },
+  { rarity: "epic", names: ["金礦", "藍水晶", "魔力碎片"] },
+  { rarity: "legendary", names: ["紫水晶", "星隕石", "遠古符文石"] },
+];
+
+export const FISH_NAMES = FISH_TIERS.flatMap((tier) => tier.names);
+export const GATHER_NAMES = GATHER_TIERS.flatMap((tier) => tier.names);
+
+/** 種好釣魚/採集會抽到的所有道具；upsert 所以重複呼叫安全，每個測試檔都可以自己叫一次 */
+export async function seedHarvestItems(): Promise<void> {
+  for (const [tiers, type, description] of [
+    [FISH_TIERS, "fish", "測試用魚"],
+    [GATHER_TIERS, "material", "測試用材料"],
+  ] as const) {
+    for (const { rarity, names } of tiers) {
+      for (const name of names) {
+        await prisma.item.upsert({
+          where: { name },
+          create: {
+            name,
+            description,
+            type,
+            rarity,
+            cost: 10,
+            effectType: "none",
+            effectValue: 0,
+          },
+          update: {},
+        });
+      }
+    }
+  }
+}

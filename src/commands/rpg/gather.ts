@@ -68,23 +68,25 @@ async function runGatherAndBuildReply(userId: string, username: string, avatarUR
     };
   }
 
-  const rarityLabel = RARITY_LABELS[result.item.rarity] ?? result.item.rarity;
+  // 荒野獵者一次會收穫兩份（各自獨立抽的，可能是不同東西），所以這裡一律當成清單處理
+  const lines = result.items.map((entry) => {
+    const rarityLabel = RARITY_LABELS[entry.item.rarity] ?? entry.item.rarity;
+    return `▷ 採到了一份 \`${entry.item.name}\`（${rarityLabel}）　目前 ${chip(entry.quantity)} 個`;
+  });
+
   const embed = new EmbedBuilder()
     .setAuthor({ name: username, iconURL: avatarURL })
-    .setTitle("⛏️ 採集成功！")
-    .setColor("#8d6e63" as ColorResolvable)
-    .setDescription(
-      [
-        `▷ 採到了一份 \`${result.item.name}\`（${rarityLabel}）`,
-        `▷ 目前擁有 ${chip(result.quantity)} 個`,
-        `▷ 獲得經驗 ${chip(result.xpGained)} ✨`,
-      ].join("\n")
-    );
+    .setTitle(result.items.length > 1 ? "⛏️ 採集成功！（雙倍收穫）" : "⛏️ 採集成功！")
+    .setColor("#3498db" as ColorResolvable)
+    .setDescription([...lines, `▷ 獲得經驗 ${chip(result.xpGained)} ✨`].join("\n"));
 
-  const unitPrice = ItemService.getSellPricePerUnit(result.item);
+  // 賣出按鈕只針對第一份收穫；兩份不同東西時另一份留給玩家自己去背包處理，
+  // 硬要在卡片上塞兩組賣出按鈕會讓「全部賣掉」指到哪一個變得不清楚
+  const primary = result.items[0];
+  const unitPrice = ItemService.getSellPricePerUnit(primary.item);
   return {
     embeds: [embed],
-    components: [buildGatherActionRow(userId, result.item.name, unitPrice, result.quantity)],
+    components: [buildGatherActionRow(userId, primary.item.name, unitPrice, primary.quantity)],
   };
 }
 

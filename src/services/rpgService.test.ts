@@ -2,68 +2,19 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { RPGService, xpThresholdForLevel } from "./rpgService";
 import type { DailyClaimResult } from "./rpgService";
 import { ItemService } from "./itemService";
-import { createTestUser, createTestItem, ownedCount } from "../../test/helpers";
+import {
+  createTestUser,
+  createTestItem,
+  ownedCount,
+  seedHarvestItems,
+  FISH_NAMES,
+  GATHER_NAMES,
+} from "../../test/helpers";
 import { getLocalDateString } from "../utils/datetime";
 import prisma from "./dbService";
 
-// 跟 rpgService.ts 的 FISH_TABLE/GATHER_TABLE 對應（含稀有度，順序一致）：battle() 額外事件的道具/
-// 稀有材料獎勵、fish()/gather() 本身都要抽到這些名字，放在檔案最上層用同一個 beforeAll 種好，
-// 不用管哪個 describe 先跑；稀有度要跟正式的 seedFishItems/seedGatherItems 一致，
-// 不能全部都塞 common，不然測「掉落的稀有度要是 rare 以上」這類斷言會失真
-const FISH_TIERS = [
-  { rarity: "common", names: ["小魚乾", "泥鰍", "吳郭魚"] },
-  { rarity: "uncommon", names: ["虹鱒", "鯖魚", "花枝"] },
-  { rarity: "rare", names: ["銀鱗鮭", "龍虎斑", "紅魽"] },
-  { rarity: "epic", names: ["深海鮟鱇魚", "電鰻", "小鯊魚"] },
-  { rarity: "legendary", names: ["黃金鯉魚", "傳說錦鯉", "神秘魚王"] },
-];
-
-const GATHER_TIERS = [
-  { rarity: "common", names: ["樹枝", "石頭", "麻繩"] },
-  { rarity: "uncommon", names: ["鐵礦", "煤炭", "硬木"] },
-  { rarity: "rare", names: ["銀礦", "玉石", "陳年木材"] },
-  { rarity: "epic", names: ["金礦", "藍水晶", "魔力碎片"] },
-  { rarity: "legendary", names: ["紫水晶", "星隕石", "遠古符文石"] },
-];
-
-const FISH_NAMES = FISH_TIERS.flatMap((tier) => tier.names);
-const GATHER_NAMES = GATHER_TIERS.flatMap((tier) => tier.names);
-
 beforeAll(async () => {
-  for (const { rarity, names } of FISH_TIERS) {
-    for (const name of names) {
-      await prisma.item.upsert({
-        where: { name },
-        create: {
-          name,
-          description: "測試用魚",
-          type: "fish",
-          rarity,
-          cost: 10,
-          effectType: "none",
-          effectValue: 0,
-        },
-        update: {},
-      });
-    }
-  }
-  for (const { rarity, names } of GATHER_TIERS) {
-    for (const name of names) {
-      await prisma.item.upsert({
-        where: { name },
-        create: {
-          name,
-          description: "測試用材料",
-          type: "material",
-          rarity,
-          cost: 10,
-          effectType: "none",
-          effectValue: 0,
-        },
-        update: {},
-      });
-    }
-  }
+  await seedHarvestItems();
 
   // startRPG() 的新手背包會找這三件道具，跟正式的 initDB.ts 對應
   await prisma.item.upsert({
@@ -471,8 +422,8 @@ describe("RPGService.fish", () => {
 
     expect(result?.status).toBe("caught");
     if (result?.status === "caught") {
-      expect(FISH_NAMES).toContain(result.item.name);
-      expect(result.quantity).toBeGreaterThan(0);
+      expect(FISH_NAMES).toContain(result.items[0].item.name);
+      expect(result.items[0].quantity).toBeGreaterThan(0);
       expect(result.xpGained).toBeGreaterThan(0);
     }
 
@@ -538,8 +489,8 @@ describe("RPGService.gather", () => {
 
     expect(result?.status).toBe("gathered");
     if (result?.status === "gathered") {
-      expect(GATHER_NAMES).toContain(result.item.name);
-      expect(result.quantity).toBeGreaterThan(0);
+      expect(GATHER_NAMES).toContain(result.items[0].item.name);
+      expect(result.items[0].quantity).toBeGreaterThan(0);
       expect(result.xpGained).toBeGreaterThan(0);
     }
 

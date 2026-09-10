@@ -24,6 +24,14 @@ import {
   type DungeonAffix,
   type DungeonFloorPlan,
 } from "./dungeonRun";
+import {
+  gatherRollCount,
+  harvestEmptyChanceOverride,
+  isJobKey,
+  JOB_CHANGE_COST,
+  JOB_UNLOCK_LEVEL,
+  type JobKey,
+} from "./jobs";
 
 // 給指令層顯示「距離下一級還差多少經驗」用，實作在 combat.ts
 export { xpThresholdForLevel };
@@ -209,6 +217,36 @@ async function rollBattleBonusEvent(
   return { events, xpGained, goldGained, finalHealth };
 }
 
+
+/**
+ * 抽 rollCount 份收穫並寫進背包，回傳每一份是什麼。
+ *
+ * 荒野獵者是「擲兩次獨立的骰子」而不是「同一份拿兩個」——期望值一樣，
+ * 但抽中傳說的機率從 2.7% 變成 5.3%，玩家感受到的是「多久遇到一次好東西」而不是期望值。
+ */
+async function harvest(
+  userInternalId: string,
+  table: WeightedTier[],
+  rollCount: number,
+  seedScript: string
+): Promise<HarvestEntry[]> {
+  const entries: HarvestEntry[] = [];
+  for (let i = 0; i < rollCount; i++) {
+    const name = pickFromWeightedTiers(table);
+    const item = await ItemService.findItemByName(name);
+    if (!item) {
+      throw new Error(`資料「${name}」尚未建立，請先執行種子腳本 ${seedScript}`);
+    }
+    const inventory = await prisma.inventory.upsert({
+      where: { userId_itemId: { userId: userInternalId, itemId: item.id } },
+      create: { userId: userInternalId, itemId: item.id, quantity: 1 },
+      update: { quantity: { increment: 1 } },
+    });
+    entries.push({ item, quantity: inventory.quantity });
+  }
+  return entries;
+}
+
 // 連續簽到獎勵：每連續一天加基礎金幣的 2%，最多加到 +60%（連續 30 天封頂）
 const STREAK_BONUS_PER_DAY = 0.02;
 const STREAK_BONUS_MAX_DAYS = 30;
@@ -245,6 +283,14 @@ export interface DungeonClearedFloor {
   healthAfter: number;
   rounds: number;
 }
+
+
+export type ChooseJobResult =
+  | { status: "not_started" }
+  | { status: "level_too_low"; currentLevel: number; requiredLevel: number }
+  | { status: "already_that_job" }
+  | { status: "not_enough_gold"; cost: number; gold: number }
+  | { status: "changed"; job: JobKey; previousJob: JobKey | null; cost: number; goldAfter: number };
 
 export type DungeonEnterResult =
   | { status: "not_started" }
@@ -287,17 +333,24 @@ export type DungeonLeaveResult =
       user: User;
     };
 
+/** 一次釣魚/採集抽到的一份收穫。荒野獵者一次會抽兩份（可能是不同的東西） */
+export interface HarvestEntry {
+  item: Item;
+  /** 收進背包之後這個道具總共有幾個 */
+  quantity: number;
+}
+
 export type FishResult =
   | { status: "not_started" }
   | { status: "cooldown"; remainingSeconds: number }
   | { status: "empty"; message: string }
-  | { status: "caught"; item: Item; quantity: number; xpGained: number };
+  | { status: "caught"; items: HarvestEntry[]; xpGained: number };
 
 export type GatherResult =
   | { status: "not_started" }
   | { status: "cooldown"; remainingSeconds: number }
   | { status: "empty"; message: string }
-  | { status: "gathered"; item: Item; quantity: number; xpGained: number };
+  | { status: "gathered"; items: HarvestEntry[]; xpGained: number };
 
 export type DailyClaimResult =
   | { status: "not_started" }
@@ -362,6 +415,48 @@ export class RPGService {
     }
 
     return { health: user.health + healed, healed };
+  }
+
+  /**
+   * 選擇或變更職業。第一次免費，之後每次收 JOB_CHANGE_COST。
+   *
+   * 「扣款 + 換職業」包在同一個 conditional update 裡：where 帶上「職業還是我們讀到的那個、
+   * 而且錢還夠」，兩個併發請求只有一個會命中，不會被扣兩次錢。
+   */
+  static async chooseJob(discordUserId: string, job: JobKey): Promise<ChooseJobResult> {
+    const user = await prisma.user.findUnique({ where: { userId: discordUserId } });
+    if (!user) return { status: "not_started" };
+
+    if (user.level < JOB_UNLOCK_LEVEL) {
+      return { status: "level_too_low", currentLevel: user.level, requiredLevel: JOB_UNLOCK_LEVEL };
+    }
+
+    const currentJob = isJobKey(user.job) ? user.job : null;
+    // 選一樣的擋下來：不然玩家會白白付一次變更費用換到同一個職業
+    if (currentJob === job) return { status: "already_that_job" };
+
+    const cost = user.jobChangedOnce ? JOB_CHANGE_COST : 0;
+    if (user.gold < cost) return { status: "not_enough_gold", cost, gold: user.gold };
+
+    const claimed = await prisma.user.updateMany({
+      where: {
+        id: user.id,
+        job: user.job,
+        jobChangedOnce: user.jobChangedOnce,
+        gold: { gte: cost },
+      },
+      data: {
+        job,
+        jobChangedOnce: true,
+        gold: { decrement: cost },
+      },
+    });
+    if (claimed.count === 0) {
+      throw new PlayerNotice("職業剛剛被另一個操作改變了，請重新查看目前狀態");
+    }
+
+    const updated = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    return { status: "changed", job, previousJob: currentJob, cost, goldAfter: updated.gold };
   }
 
   static async findUserByDiscordId(userId: string): Promise<User | null> {
@@ -933,15 +1028,10 @@ export class RPGService {
       };
     }
 
-    if (randomChance(EMPTY_CATCH_CHANCE)) {
+    const job = isJobKey(user.job) ? user.job : null;
+    if (randomChance(harvestEmptyChanceOverride(job) ?? EMPTY_CATCH_CHANCE)) {
       // lastFish 已經在上面搶冷卻時寫過了，不用再更新一次
       return { status: "empty", message: EMPTY_CATCH_MESSAGES[randomInt(0, EMPTY_CATCH_MESSAGES.length)] };
-    }
-
-    const fishName = pickFromWeightedTiers(FISH_TABLE);
-    const item = await ItemService.findItemByName(fishName);
-    if (!item) {
-      throw new Error(`魚類資料「${fishName}」尚未建立，請先執行種子腳本 seedFishItems`);
     }
 
     const effectiveStats = await ItemService.getEffectiveStats(user.id, {
@@ -951,19 +1041,10 @@ export class RPGService {
     });
     const xpGained = Math.round(randomInt(2, 6) * (1 + effectiveStats.xpBonus / 100));
 
-    const [, inventory] = await prisma.$transaction([
-      prisma.user.update({
-        where: { id: user.id },
-        data: { xp: { increment: xpGained } },
-      }),
-      prisma.inventory.upsert({
-        where: { userId_itemId: { userId: user.id, itemId: item.id } },
-        create: { userId: user.id, itemId: item.id, quantity: 1 },
-        update: { quantity: { increment: 1 } },
-      }),
-    ]);
+    const items = await harvest(user.id, FISH_TABLE, gatherRollCount(job), "seedFishItems");
+    await prisma.user.update({ where: { id: user.id }, data: { xp: { increment: xpGained } } });
 
-    return { status: "caught", item, quantity: inventory.quantity, xpGained };
+    return { status: "caught", items, xpGained };
   }
 
   static async gather(discordUserId: string): Promise<GatherResult> {
@@ -984,18 +1065,13 @@ export class RPGService {
       };
     }
 
-    if (randomChance(GATHER_EMPTY_CHANCE)) {
+    const job = isJobKey(user.job) ? user.job : null;
+    if (randomChance(harvestEmptyChanceOverride(job) ?? GATHER_EMPTY_CHANCE)) {
       // lastGather 已經在上面搶冷卻時寫過了，不用再更新一次
       return {
         status: "empty",
         message: GATHER_EMPTY_MESSAGES[randomInt(0, GATHER_EMPTY_MESSAGES.length)],
       };
-    }
-
-    const materialName = pickFromWeightedTiers(GATHER_TABLE);
-    const item = await ItemService.findItemByName(materialName);
-    if (!item) {
-      throw new Error(`材料資料「${materialName}」尚未建立，請先執行種子腳本 seedGatherItems`);
     }
 
     const effectiveStats = await ItemService.getEffectiveStats(user.id, {
@@ -1005,19 +1081,10 @@ export class RPGService {
     });
     const xpGained = Math.round(randomInt(2, 6) * (1 + effectiveStats.xpBonus / 100));
 
-    const [, inventory] = await prisma.$transaction([
-      prisma.user.update({
-        where: { id: user.id },
-        data: { xp: { increment: xpGained } },
-      }),
-      prisma.inventory.upsert({
-        where: { userId_itemId: { userId: user.id, itemId: item.id } },
-        create: { userId: user.id, itemId: item.id, quantity: 1 },
-        update: { quantity: { increment: 1 } },
-      }),
-    ]);
+    const items = await harvest(user.id, GATHER_TABLE, gatherRollCount(job), "seedGatherItems");
+    await prisma.user.update({ where: { id: user.id }, data: { xp: { increment: xpGained } } });
 
-    return { status: "gathered", item, quantity: inventory.quantity, xpGained };
+    return { status: "gathered", items, xpGained };
   }
 
   // 共用邏輯：/rpg daily 手動簽到、跳語音頻道自動簽到都呼叫這個，確保兩者行為完全一致
