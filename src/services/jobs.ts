@@ -31,7 +31,7 @@ export const JOB_DESCRIPTIONS: Record<JobKey, string> = {
   berserker:
     "打贏後可以連戰至多 5 場，敵人每場 +3 級；整趟保證遭遇 1 隻菁英怪。連戰結束後冷卻 2 分鐘。",
   delver: "地下城的稀有材料從每 4 層一件變成每 3 層一件，下潛同樣深度能多帶一件回來。",
-  smith: "強化失敗退級的門檻從 +6 推到 +8——+6、+7 失敗只損失費用，不會被打回上一級。",
+  smith: "強化衝 +6、+7、+8 失敗都不會退級，只損失費用；衝 +9、+10 失敗才照常退一級。",
   forager:
     "釣魚與採集每次擲兩次獨立的骰子（抽中傳說材料的機率從 2.7% 提高到 5.3%），而且絕對不會空手。",
 };
@@ -55,9 +55,13 @@ export function dungeonMaterialIntervalOverride(job: JobKey | null): number | nu
   return job === "delver" ? 3 : null;
 }
 
-/** 星火匠神：強化失敗開始退級的等級 */
+/**
+ * 星火匠神：從「衝到第幾級」開始，失敗才會退級（比較的是要衝到的那一級，不是現在的等級）。
+ * 回傳 9 代表衝 +6、+7、+8 都受保護；在 +7 衝 +8 失敗會維持 +7。
+ * 傳說材料花在衝 +9/+10，那兩級照樣退級，所以這個被動不會廢掉材料沖水槽
+ */
 export function enhanceLevelLossFromOverride(job: JobKey | null): number | null {
-  return job === "smith" ? 8 : null;
+  return job === "smith" ? 9 : null;
 }
 
 /** 荒野獵者：釣魚/採集一次擲幾個獨立的骰子 */

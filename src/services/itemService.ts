@@ -145,7 +145,10 @@ export function enhanceCost(item: Item): number {
   return Math.max(1, Math.round(item.cost * ENHANCE_COST_RATIO));
 }
 
-/** 強化失敗時會不會掉一級（+6 以上才會）。星火匠神把門檻推到 +8 */
+/**
+ * 強化失敗時會不會掉一級。targetLevel 是「要衝到的那一級」：
+ * 一般衝 +6 起失敗會退級，星火匠神要衝 +9 起才會
+ */
 export function enhanceFailureDropsLevel(
   targetLevel: number,
   job: JobKey | null

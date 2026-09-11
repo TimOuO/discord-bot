@@ -42,8 +42,8 @@ describe("每個被動只覆寫自己那個系統的常數", () => {
     expect(dungeonMaterialIntervalOverride(null)).toBeNull();
   });
 
-  it("星火匠神把失敗退級的門檻從 +6 推到 +8", () => {
-    expect(enhanceLevelLossFromOverride("smith")).toBe(8);
+  it("星火匠神要衝 +9 以上失敗才會退級（衝 +6、+7、+8 都不退）", () => {
+    expect(enhanceLevelLossFromOverride("smith")).toBe(9);
     for (const key of JOB_KEYS.filter((k) => k !== "smith")) {
       expect(enhanceLevelLossFromOverride(key)).toBeNull();
     }

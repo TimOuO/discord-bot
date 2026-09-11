@@ -62,7 +62,19 @@ describe("星火匠神：透過 enhanceInstance 實際強化", () => {
     expect(failure.newLevel).toBe(6);
   });
 
-  it("星火匠神 +8 衝 +9 失敗照樣退級（保護只到 +7）", async () => {
+  // 玩家實際回報的就是這個情境：在 +7 衝 +8 失敗被退回 +6。
+  // 規則改成保護到衝 +8 為止之後，這裡要維持在 +7
+  it("星火匠神 +7 衝 +8 失敗不退級", async () => {
+    const { user, instanceId } = await smithWithWeaponAt(7);
+    await prisma.user.update({ where: { id: user.id }, data: { job: "smith" } });
+
+    const failure = await enhanceUntilFailure(user.id, instanceId, 7);
+
+    expect(failure.droppedLevel).toBe(false);
+    expect(failure.newLevel).toBe(7);
+  });
+
+  it("星火匠神 +8 衝 +9 失敗照樣退級（保護到衝 +8 為止）", async () => {
     const { user, instanceId } = await smithWithWeaponAt(8);
     await prisma.user.update({ where: { id: user.id }, data: { job: "smith" } });
 

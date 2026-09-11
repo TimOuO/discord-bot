@@ -35,10 +35,12 @@ describe("星火匠神：強化失敗退級門檻", () => {
     expect(enhanceFailureDropsLevel(8, null)).toBe(true);
   });
 
-  it("星火匠神的 +6、+7 失敗不退級，+8 以上照樣退", () => {
+  // 參數是「要衝到的那一級」：衝 +8 失敗代表玩家原本在 +7
+  it("星火匠神衝 +6、+7、+8 失敗都不退級，衝 +9 以上照樣退", () => {
     expect(enhanceFailureDropsLevel(6, "smith")).toBe(false);
     expect(enhanceFailureDropsLevel(7, "smith")).toBe(false);
-    expect(enhanceFailureDropsLevel(8, "smith")).toBe(true);
+    expect(enhanceFailureDropsLevel(8, "smith")).toBe(false);
+    expect(enhanceFailureDropsLevel(9, "smith")).toBe(true);
     expect(enhanceFailureDropsLevel(10, "smith")).toBe(true);
   });
 
