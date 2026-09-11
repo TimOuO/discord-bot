@@ -642,10 +642,13 @@ export class RPGService {
         throw new PlayerNotice(`⏳ 戰鬥冷卻中，還要等 ${formatCooldown(remainingTime * 1000)}。`);
       }
     } else {
-      // 連戰的第 2 場之後：用「連戰場次還是我們讀到的那個」把連點兩下擋掉
+      // 連戰的第 2 場之後：搶的時候就把場次 +1。
+      // 原本寫成 increment: 0——守衛條件是「場次還是我們讀到的那個」，但 data 什麼都沒改，
+      // 所以連點兩下時兩個請求讀到同一個值、兩邊都命中、兩邊都打完一場、兩邊都拿獎勵。
+      // 守衛必須改動它自己守的那個欄位，否則等於沒有守衛
       const claimedFight = await prisma.user.updateMany({
         where: { id: user.id, battleStreak: user.battleStreak },
-        data: { battleStreak: { increment: 0 } },
+        data: { battleStreak: { increment: 1 } },
       });
       if (claimedFight.count === 0) {
         throw new PlayerNotice("這一場剛剛已經打過了，請重新查看目前狀態");

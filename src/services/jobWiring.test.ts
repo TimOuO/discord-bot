@@ -112,3 +112,29 @@ describe("深淵掠者：透過 dungeonEnter 實際下潛", () => {
     expect(floors).not.toContain(6);
   });
 });
+
+describe("血戰鬥神：連戰的併發", () => {
+  it("連戰中連點兩下「繼續連戰」，只會打一場（不會複製獎勵）", async () => {
+    const { discordUserId, user } = await createTestUser({
+      level: 30,
+      attack: 900,
+      defense: 700,
+      health: 20000,
+      maxHealth: 20000,
+    });
+    await prisma.user.update({ where: { id: user.id }, data: { job: "berserker" } });
+    await RPGService.battle(discordUserId); // 第 1 場，進入連戰
+    const before = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(before.battleStreak).toBe(1);
+
+    const results = await Promise.allSettled([
+      RPGService.battle(discordUserId),
+      RPGService.battle(discordUserId),
+    ]);
+
+    const fought = results.filter((r) => r.status === "fulfilled");
+    expect(fought).toHaveLength(1);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(after.battleStreak).toBe(2); // 只前進一場，不是兩場
+  });
+});
