@@ -1,7 +1,7 @@
 import { Item, Prisma } from "../generated/prisma";
 import { randomChance } from "../utils/random";
 import { PlayerNotice } from "../utils/errors";
-import { enhanceLevelLossFromOverride, type JobKey } from "./jobs";
+import { enhanceLevelLossFromOverride, isJobKey, type JobKey } from "./jobs";
 import prisma from "./dbService";
 
 export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2", "accessory3"] as const;
@@ -148,7 +148,7 @@ export function enhanceCost(item: Item): number {
 /** 強化失敗時會不會掉一級（+6 以上才會）。星火匠神把門檻推到 +8 */
 export function enhanceFailureDropsLevel(
   targetLevel: number,
-  job: JobKey | null = null
+  job: JobKey | null
 ): boolean {
   return targetLevel >= (enhanceLevelLossFromOverride(job) ?? ENHANCE_LEVEL_LOSS_FROM);
 }
@@ -820,6 +820,19 @@ export class ItemService {
   }
 
   /**
+   * 玩家目前的職業。需要看職業的地方一律走這裡，不要各自讀 user.job 再自己驗證——
+   * 資料庫裡的字串不一定是合法的 JobKey，驗證只應該寫一次。
+   */
+  static async getJob(userInternalId: string): Promise<JobKey | null> {
+    const user = await prisma.user.findUnique({
+      where: { id: userInternalId },
+      select: { job: true },
+    });
+    const job = user?.job;
+    return isJobKey(job) ? job : null;
+  }
+
+  /**
    * 強化指定的那一件裝備。成功 +1 級；失敗只損失費用，+6 以上失敗還會退一級。
    * 金幣的扣款用 conditional update（跟買東西一樣的手法），避免「查完錢夠、扣款前錢被花掉」的競態；
    * 等級的更新也帶上「等級還是強化前那個值」的條件，兩邊同時按強化不會把等級推成 +2
@@ -841,6 +854,8 @@ export class ItemService {
 
     const cost = enhanceCost(instance.item);
     const requirement = enhanceMaterialRequirement(instance.item, targetLevel);
+    // 星火匠神的被動看這個：沒傳進去的話被動會靜默失效（上線第一版就是這樣）
+    const job = await this.getJob(userInternalId);
 
     const result = await prisma.$transaction(async (tx) => {
       // 材料先扣再扣金幣：後期玩家金幣充裕、卡住的幾乎都是材料，先擋掉可以少做一次「扣款又回滾」
@@ -858,7 +873,7 @@ export class ItemService {
       }
 
       const success = randomChance(enhanceSuccessRate(targetLevel));
-      const droppedLevel = !success && enhanceFailureDropsLevel(targetLevel);
+      const droppedLevel = !success && enhanceFailureDropsLevel(targetLevel, job);
       const newLevel = success ? targetLevel : droppedLevel ? previousLevel - 1 : previousLevel;
 
       if (newLevel !== previousLevel) {

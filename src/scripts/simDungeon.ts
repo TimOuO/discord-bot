@@ -50,7 +50,8 @@ function simulateCautiousRun(level: number, s: EffectiveStats): RunOutcome {
   const decisionFloors: number[] = [];
 
   for (let floor = 1; floor <= MAX_DUNGEON_FLOOR; floor++) {
-    const plan = rollDungeonFloor(level, floor);
+    // 模擬的是沒有職業的基準；要看深淵掠者就把 null 換成 "delver"
+    const plan = rollDungeonFloor(level, floor, null);
     const survival = estimateSurvival(s, plan.enemy, health);
     if (survival < AUTO_DESCEND_SURVIVAL_THRESHOLD) {
       decisionFloors.push(floor);

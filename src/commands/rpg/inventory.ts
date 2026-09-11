@@ -323,7 +323,8 @@ async function buildItemActionRows(
       const cost = enhanceCost(item);
       const rate = Math.round(enhanceSuccessRate(targetLevel) * 100);
       // 失敗會退級的等級要先講清楚，不能等玩家賭輸了才發現
-      const riskNote = enhanceFailureDropsLevel(targetLevel) ? "・失敗退級" : "";
+      const job = await ItemService.getJob(userInternalId);
+      const riskNote = enhanceFailureDropsLevel(targetLevel, job) ? "・失敗退級" : "";
       const material = await ItemService.getEnhanceMaterialStatus(userInternalId, item, targetLevel);
       const shortOfMaterial = material !== null && material.owned < material.requirement.quantity;
 

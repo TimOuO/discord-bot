@@ -909,7 +909,11 @@ export class RPGService {
       // 過關：獎勵先進「未入袋」的暫存，帶著離開才真的入袋
       const material = plan.givesMaterial ? await pickRareLootItem() : null;
       const lootPending = current.lootPending as unknown as PendingLoot[];
-      const nextPlan = rollDungeonFloor(user.level, plan.floor + 1);
+      const nextPlan = rollDungeonFloor(
+        user.level,
+        plan.floor + 1,
+        isJobKey(user.job) ? user.job : null
+      );
       const newLoot = material
         ? [...lootPending, { itemId: material.id, name: material.name, quantity: 1 }]
         : lootPending;
@@ -1042,7 +1046,11 @@ export class RPGService {
         maxHealth: stats.maxHealth,
         healthBefore: userHealth,
         lootPending: [] as unknown as Prisma.InputJsonValue,
-        nextFloor: rollDungeonFloor(user.level, 1) as unknown as Prisma.InputJsonValue,
+        nextFloor: rollDungeonFloor(
+          user.level,
+          1,
+          isJobKey(user.job) ? user.job : null
+        ) as unknown as Prisma.InputJsonValue,
       },
     });
 

@@ -97,7 +97,7 @@ export function floorXp(floor: number): number {
 }
 
 /** 這一層給不給材料。深淵掠者把間隔從 4 層縮成 3 層（第一件仍然落在第 2 層） */
-export function materialFloor(floor: number, job: JobKey | null = null): boolean {
+export function materialFloor(floor: number, job: JobKey | null): boolean {
   const every = dungeonMaterialIntervalOverride(job) ?? MATERIAL_EVERY_N_FLOORS;
   return floor % every === MATERIAL_FIRST_FLOOR % every;
 }
@@ -136,7 +136,7 @@ export interface DungeonFloorPlan {
 export function rollDungeonFloor(
   userLevel: number,
   floor: number,
-  job: JobKey | null = null
+  job: JobKey | null
 ): DungeonFloorPlan {
   const offset = randomInt(-ENEMY_LEVEL_SPREAD, ENEMY_LEVEL_SPREAD + 1);
   const level = dungeonEnemyLevel(userLevel, floor, offset);
