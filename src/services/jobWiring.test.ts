@@ -26,10 +26,24 @@ describe("星火匠神：透過 enhanceInstance 實際強化", () => {
     });
     await prisma.itemInstance.update({ where: { id: instance.id }, data: { enhanceLevel: level } });
     // +6 以上要付材料：普通裝備吃普通材料，備足
-    const material = await createTestItem({ type: "material", rarity: "common", cost: 10, effectType: "none" });
-    await prisma.inventory.create({ data: { userId: user.id, itemId: material.id, quantity: 500 } });
-    const uncommon = await createTestItem({ type: "material", rarity: "uncommon", cost: 30, effectType: "none" });
-    await prisma.inventory.create({ data: { userId: user.id, itemId: uncommon.id, quantity: 500 } });
+    const material = await createTestItem({
+      type: "material",
+      rarity: "common",
+      cost: 10,
+      effectType: "none",
+    });
+    await prisma.inventory.create({
+      data: { userId: user.id, itemId: material.id, quantity: 500 },
+    });
+    const uncommon = await createTestItem({
+      type: "material",
+      rarity: "uncommon",
+      cost: 30,
+      effectType: "none",
+    });
+    await prisma.inventory.create({
+      data: { userId: user.id, itemId: uncommon.id, quantity: 500 },
+    });
     return { user, instanceId: instance.id };
   }
 
@@ -38,7 +52,10 @@ describe("星火匠神：透過 enhanceInstance 實際強化", () => {
     for (let i = 0; i < 60; i++) {
       const result = await ItemService.enhanceInstance(userId, instanceId);
       if (!result.success) return result;
-      await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: level } });
+      await prisma.itemInstance.update({
+        where: { id: instanceId },
+        data: { enhanceLevel: level },
+      });
     }
     throw new Error("60 次都成功，機率上不可能");
   }

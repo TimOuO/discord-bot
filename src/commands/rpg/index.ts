@@ -27,8 +27,18 @@ import {
   handleDungeonLeaveButton,
 } from "./dungeon";
 import { handleDailyCommand, buildDailyRewardEmbed } from "./daily";
-import { handleFishCommand, handleFishRetryButton, handleFishSellButton, handleFishSellAllButton } from "./fish";
-import { handleGatherCommand, handleGatherRetryButton, handleGatherSellButton, handleGatherSellAllButton } from "./gather";
+import {
+  handleFishCommand,
+  handleFishRetryButton,
+  handleFishSellButton,
+  handleFishSellAllButton,
+} from "./fish";
+import {
+  handleGatherCommand,
+  handleGatherRetryButton,
+  handleGatherSellButton,
+  handleGatherSellAllButton,
+} from "./gather";
 import {
   handleCraftCommand,
   craftAutocomplete,
@@ -84,27 +94,21 @@ export default {
   data: new SlashCommandBuilder()
     .setName("rpg")
     .setDescription("RPG 遊戲相關指令")
-    .addSubcommand((subcommand) =>
-      subcommand.setName("start").setDescription("開始你的 RPG 冒險")
-    )
-    .addSubcommand((subcommand) =>
-      subcommand.setName("profile").setDescription("查看你的角色資料")
-    )
+    .addSubcommand((subcommand) => subcommand.setName("start").setDescription("開始你的 RPG 冒險"))
+    .addSubcommand((subcommand) => subcommand.setName("profile").setDescription("查看你的角色資料"))
     .addSubcommand((subcommand) =>
       subcommand.setName("leaderboard").setDescription("查看等級排行榜")
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("inventory").setDescription("查看你的背包與裝備")
     )
+    .addSubcommand((subcommand) => subcommand.setName("battle").setDescription("在 RPG 遊戲中戰鬥"))
     .addSubcommand((subcommand) =>
-      subcommand.setName("battle").setDescription("在 RPG 遊戲中戰鬥")
+      subcommand
+        .setName("dungeon")
+        .setDescription("下潛地下城：越深獎勵越好，但戰敗會沒收未帶走的戰利品")
     )
-    .addSubcommand((subcommand) =>
-      subcommand.setName("dungeon").setDescription("下潛地下城：越深獎勵越好，但戰敗會沒收未帶走的戰利品")
-    )
-    .addSubcommand((subcommand) =>
-      subcommand.setName("daily").setDescription("領取每日獎勵")
-    )
+    .addSubcommand((subcommand) => subcommand.setName("daily").setDescription("領取每日獎勵"))
     .addSubcommand((subcommand) =>
       subcommand.setName("fish").setDescription("到河邊釣魚，有機會釣到稀有魚類")
     )
@@ -143,7 +147,9 @@ export default {
         )
     )
     .addSubcommand((subcommand) =>
-      subcommand.setName("job").setDescription("職業殿堂：Lv30 之後可以選一個職業，被動會改變一個系統的規則")
+      subcommand
+        .setName("job")
+        .setDescription("職業殿堂：Lv30 之後可以選一個職業，被動會改變一個系統的規則")
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("shop").setDescription("商店：瀏覽、購買道具（用選單+按鈕操作，可選數量）")

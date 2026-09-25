@@ -21,7 +21,15 @@ const stats = (
   maxHealth: number,
   critRate = 0,
   dodgeRate = 0
-): EffectiveStats => ({ attack, defense, maxHealth, critRate, dodgeRate, goldBonus: 0, xpBonus: 0 });
+): EffectiveStats => ({
+  attack,
+  defense,
+  maxHealth,
+  critRate,
+  dodgeRate,
+  goldBonus: 0,
+  xpBonus: 0,
+});
 
 // 對照正式環境的實際角色（2026-09-06 的資料）
 const PLAYERS: { label: string; level: number; stats: EffectiveStats }[] = [
@@ -94,13 +102,19 @@ for (const { label, level, stats: s } of PLAYERS) {
 
   console.log(
     label.padEnd(22) +
-      avg((r) => r.bankedDepth).toFixed(1).padStart(8) +
+      avg((r) => r.bankedDepth)
+        .toFixed(1)
+        .padStart(8) +
       (decisionAt.length > 0
         ? (decisionAt.reduce((a, b) => a + b, 0) / decisionAt.length).toFixed(1)
         : "—"
       ).padStart(12) +
-      avg((r) => r.materials).toFixed(2).padStart(10) +
-      Math.round(avg((r) => r.gold)).toString().padStart(10)
+      avg((r) => r.materials)
+        .toFixed(2)
+        .padStart(10) +
+      Math.round(avg((r) => r.gold))
+        .toString()
+        .padStart(10)
   );
 }
 

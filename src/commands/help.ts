@@ -43,9 +43,7 @@ function describeCommand(json: CommandJSON): string[] {
       lines.push(`\`/${json.name} ${option.name}\` — ${option.description}`);
     } else if (option.type === ApplicationCommandOptionType.SubcommandGroup) {
       for (const sub of option.options ?? []) {
-        lines.push(
-          `\`/${json.name} ${option.name} ${sub.name}\` — ${sub.description}`
-        );
+        lines.push(`\`/${json.name} ${option.name} ${sub.name}\` — ${sub.description}`);
       }
     }
   }
@@ -53,24 +51,19 @@ function describeCommand(json: CommandJSON): string[] {
 }
 
 export default {
-  data: new SlashCommandBuilder()
-    .setName("help")
-    .setDescription("查看所有可用指令"),
+  data: new SlashCommandBuilder().setName("help").setDescription("查看所有可用指令"),
 
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const client = interaction.client as ExtendedClient;
-    const isAdmin =
-      interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false;
+    const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false;
 
     const commands = [...client.commands.values()]
       .filter((command) => command.data.name !== "help")
       .sort((a, b) => a.data.name.localeCompare(b.data.name));
 
-    const embed = new EmbedBuilder()
-      .setTitle("📖 指令說明")
-      .setColor("#3498db" as ColorResolvable);
+    const embed = new EmbedBuilder().setTitle("📖 指令說明").setColor("#3498db" as ColorResolvable);
 
     for (const command of commands) {
       const json = command.data.toJSON() as CommandJSON;

@@ -3,9 +3,7 @@ import type { ChatInputCommandInteraction } from "discord.js";
 import type { Command } from "./index";
 
 export default {
-  data: new SlashCommandBuilder()
-    .setName("ping")
-    .setDescription("回覆延遲測試"),
+  data: new SlashCommandBuilder().setName("ping").setDescription("回覆延遲測試"),
 
   async execute(interaction: ChatInputCommandInteraction) {
     try {

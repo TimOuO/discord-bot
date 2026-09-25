@@ -11,7 +11,10 @@ import type { EffectiveStats } from "./itemService";
 
 // 這些是「粗略的平衡回歸測試」，邊界刻意放寬，只擋真正的結構性退化，不是精準驗算。
 // 完整的難度曲線看 npm run sim:balance，那支腳本會印出各等級 × 各裝備階段的表。
-function statsFor(level: number, gear: { attack: number; defense: number; maxHealth: number }): EffectiveStats {
+function statsFor(
+  level: number,
+  gear: { attack: number; defense: number; maxHealth: number }
+): EffectiveStats {
   return {
     attack: 10 + (level - 1) * 2 + gear.attack,
     defense: 5 + (level - 1) * 1 + gear.defense,

@@ -19,7 +19,14 @@ export interface RecipeIngredient {
 
 // 背包顯示順序：裝備類優先（武器/防具/飾品），再來是消耗品，最後才是魚/材料；
 // 原本用 Prisma 的 orderBy type asc 是照字母排序，weapon 剛好排最後面，武器反而被擠到最後一頁
-export const TYPE_ORDER: readonly string[] = ["weapon", "armor", "accessory", "potion", "fish", "material"];
+export const TYPE_ORDER: readonly string[] = [
+  "weapon",
+  "armor",
+  "accessory",
+  "potion",
+  "fish",
+  "material",
+];
 
 export const TYPE_LABELS: Record<string, string> = {
   weapon: "武器",
@@ -51,7 +58,12 @@ export const EFFECT_TYPE_LABELS: Record<string, string> = {
 };
 
 // 這幾種效果的 effectValue 代表百分比（+N%），顯示時要加 % 而不是當成純數值
-const PERCENTAGE_EFFECT_TYPES: readonly string[] = ["critRate", "dodgeRate", "goldBonus", "xpBonus"];
+const PERCENTAGE_EFFECT_TYPES: readonly string[] = [
+  "critRate",
+  "dodgeRate",
+  "goldBonus",
+  "xpBonus",
+];
 
 export function formatEffectValue(type: string, value: number): string {
   const label = EFFECT_TYPE_LABELS[type] ?? type;
@@ -125,8 +137,16 @@ export function enhancedValue(baseValue: number, enhanceLevel: number): number {
 // 因為 +5（裝備數值 ×1.5）就足以解決「裝備固定值追不上敵人線性成長」的問題（見 PRD 第 15 節的模擬），
 // +6 之後純粹是給願意投入的人的選配追求，不是正常遊玩的門檻
 const ENHANCE_SUCCESS_RATE: Record<number, number> = {
-  1: 0.95, 2: 0.9, 3: 0.85, 4: 0.8, 5: 0.75,
-  6: 0.6, 7: 0.5, 8: 0.4, 9: 0.35, 10: 0.3,
+  1: 0.95,
+  2: 0.9,
+  3: 0.85,
+  4: 0.8,
+  5: 0.75,
+  6: 0.6,
+  7: 0.5,
+  8: 0.4,
+  9: 0.35,
+  10: 0.3,
 };
 
 // 這一級（含）以上，失敗會退一級；以下失敗只損失費用、等級原地不動。
@@ -149,10 +169,7 @@ export function enhanceCost(item: Item): number {
  * 強化失敗時會不會掉一級。targetLevel 是「要衝到的那一級」：
  * 一般衝 +6 起失敗會退級，星火匠神要衝 +9 起才會
  */
-export function enhanceFailureDropsLevel(
-  targetLevel: number,
-  job: JobKey | null
-): boolean {
+export function enhanceFailureDropsLevel(targetLevel: number, job: JobKey | null): boolean {
   return targetLevel >= (enhanceLevelLossFromOverride(job) ?? ENHANCE_LEVEL_LOSS_FROM);
 }
 
@@ -306,8 +323,7 @@ export interface EquipmentInstance {
 // 背包同時有兩種東西：可堆疊的消耗品/材料（一列帶數量），跟一件一列的裝備實體。
 // 統一成同一個聯集型別，呼叫端用 kind 分辨，排序/分頁/顯示都能一起處理
 export type InventoryEntry =
-  | { kind: "stack"; item: Item; quantity: number }
-  | ({ kind: "instance" } & EquipmentInstance);
+  { kind: "stack"; item: Item; quantity: number } | ({ kind: "instance" } & EquipmentInstance);
 
 export class ItemService {
   // 只有 purchasable 的道具才會出現在商店（魚/材料/鍛造裝備都不能直接買，見 sellItem 之後可以拿去賣）；
@@ -446,10 +462,18 @@ export class ItemService {
   }
 
   /** 這件裝備實體算上強化之後的實際效果值（第一/第二效果都套同一個倍率） */
-  static describeInstanceEffects(item: Item, enhanceLevel: number): { type: string; value: number }[] {
-    const effects = [{ type: item.effectType, value: enhancedValue(item.effectValue, enhanceLevel) }];
+  static describeInstanceEffects(
+    item: Item,
+    enhanceLevel: number
+  ): { type: string; value: number }[] {
+    const effects = [
+      { type: item.effectType, value: enhancedValue(item.effectValue, enhanceLevel) },
+    ];
     if (item.effectType2 && item.effectValue2 != null) {
-      effects.push({ type: item.effectType2, value: enhancedValue(item.effectValue2, enhanceLevel) });
+      effects.push({
+        type: item.effectType2,
+        value: enhancedValue(item.effectValue2, enhanceLevel),
+      });
     }
     return effects;
   }
@@ -458,7 +482,12 @@ export class ItemService {
   // 飾品有三欄，同屬性的話跟其中最弱的比，沒有同屬性的裝備就不比、只顯示這件道具本身的數值
   static computeEquipComparison(
     itemType: string,
-    item: { effectType: string; effectType2?: string | null; effectValue: number; effectValue2?: number | null },
+    item: {
+      effectType: string;
+      effectType2?: string | null;
+      effectValue: number;
+      effectValue2?: number | null;
+    },
     equipped: Awaited<ReturnType<typeof ItemService.getEquipped>>,
     candidateEnhanceLevel = 0
   ): string {
@@ -474,7 +503,13 @@ export class ItemService {
     }
 
     const referenceSlots: string[] =
-      itemType === "weapon" ? ["weapon"] : itemType === "armor" ? ["armor"] : itemType === "accessory" ? [...ACCESSORY_SLOTS] : [];
+      itemType === "weapon"
+        ? ["weapon"]
+        : itemType === "armor"
+          ? ["armor"]
+          : itemType === "accessory"
+            ? [...ACCESSORY_SLOTS]
+            : [];
 
     // 拿來比較的是「目前裝備算上強化之後」的實際數值，不然 +7 的裝備會被當成 +0 來比
     const referenceEffects: { type: string; value: number }[] = [];
@@ -496,10 +531,7 @@ export class ItemService {
 
   // 有效屬性 = 基礎屬性 + 目前所有已裝備道具的加成，即時計算、不寫回 User（見 docs/adr/0001）
   // 爆擊率/閃避率/金幣加成/經驗加成沒有對應的 User 基礎欄位，一律從 0 開始、純粹來自裝備
-  static async getEffectiveStats(
-    userInternalId: string,
-    base: BaseStats
-  ): Promise<EffectiveStats> {
+  static async getEffectiveStats(userInternalId: string, base: BaseStats): Promise<EffectiveStats> {
     const rows = await prisma.equippedItem.findMany({
       where: { userId: userInternalId },
       include: { instance: { include: { item: true } } },
@@ -518,7 +550,10 @@ export class ItemService {
 
     // 效果值都要先套上這件實體的強化倍率；神話級鍛造裝備的第二效果也一樣算
     for (const row of rows) {
-      for (const effect of this.describeInstanceEffects(row.instance.item, row.instance.enhanceLevel)) {
+      for (const effect of this.describeInstanceEffects(
+        row.instance.item,
+        row.instance.enhanceLevel
+      )) {
         applyEffect(effect.type, effect.value);
       }
     }
@@ -532,10 +567,13 @@ export class ItemService {
     if (!item) throw new Error(`商店裡沒有「${itemName}」這件道具`);
     if (!item.purchasable) {
       const hint =
-        item.type === "fish" ? "要自己去 /rpg fish 釣"
-        : item.type === "material" ? "要自己去 /rpg gather 採集"
-        : item.recipe ? "要用 /rpg craft 鍛造"
-        : "沒辦法用金幣取得";
+        item.type === "fish"
+          ? "要自己去 /rpg fish 釣"
+          : item.type === "material"
+            ? "要自己去 /rpg gather 採集"
+            : item.recipe
+              ? "要用 /rpg craft 鍛造"
+              : "沒辦法用金幣取得";
       throw new Error(`「${item.name}」不是商店販售的商品，${hint}才拿得到！`);
     }
 
@@ -572,7 +610,13 @@ export class ItemService {
     });
 
     const autoEquipped = await this.maybeAutoEquip(userInternalId, item);
-    return { item, quantity: ownedQuantity, boughtAmount: amount, totalCost, autoEquippedSlot: autoEquipped?.slot ?? null };
+    return {
+      item,
+      quantity: ownedQuantity,
+      boughtAmount: amount,
+      totalCost,
+      autoEquippedSlot: autoEquipped?.slot ?? null,
+    };
   }
 
   /** 找一件目前沒裝在身上的實體；同名多件時挑強化等級最低的（練起來的那件留著） */
@@ -720,7 +764,9 @@ export class ItemService {
     });
 
     if (sellable.length === 0) {
-      const owned = await prisma.itemInstance.count({ where: { userId: userInternalId, itemId: item.id } });
+      const owned = await prisma.itemInstance.count({
+        where: { userId: userInternalId, itemId: item.id },
+      });
       throw new Error(
         owned > 0
           ? `「${item.name}」目前正在裝備中，無法賣掉，請先換裝再賣`
@@ -780,7 +826,9 @@ export class ItemService {
         where: { id: instanceId, userId: userInternalId, equipped: { is: null } },
       });
       if (deleted.count === 0) {
-        throw new Error(`「${instance.item.name}」的狀態在賣出前被其他操作改變了，請重新查詢後再試`);
+        throw new Error(
+          `「${instance.item.name}」的狀態在賣出前被其他操作改變了，請重新查詢後再試`
+        );
       }
       const user = await tx.user.update({
         where: { id: userInternalId },
@@ -925,16 +973,17 @@ export class ItemService {
     });
 
     if (user.health >= effectiveStats.maxHealth) {
-      throw new Error(
-        `生命值已經是滿的（${user.health}/${effectiveStats.maxHealth}），不需要使用`
-      );
+      throw new Error(`生命值已經是滿的（${user.health}/${effectiveStats.maxHealth}），不需要使用`);
     }
 
     const neededToFull = effectiveStats.maxHealth - user.health;
     const potionsNeeded = Math.max(1, Math.ceil(neededToFull / item.effectValue));
     const usedAmount = Math.min(amount, potionsNeeded);
 
-    const newHealth = Math.min(user.health + item.effectValue * usedAmount, effectiveStats.maxHealth);
+    const newHealth = Math.min(
+      user.health + item.effectValue * usedAmount,
+      effectiveStats.maxHealth
+    );
     const healedAmount = newHealth - user.health;
 
     await prisma.$transaction(async (tx) => {
@@ -949,7 +998,14 @@ export class ItemService {
       }
     });
 
-    return { item, healedAmount, newHealth, maxHealth: effectiveStats.maxHealth, usedAmount, requestedAmount: amount };
+    return {
+      item,
+      healedAmount,
+      newHealth,
+      maxHealth: effectiveStats.maxHealth,
+      usedAmount,
+      requestedAmount: amount,
+    };
   }
 
   // 裝上「這一件」實體。preferredSlot 給飾品指定要換掉哪一欄；不指定時維持「優先塞空格、
@@ -1017,7 +1073,11 @@ export class ItemService {
   }
 
   /** 依名稱裝備：挑一件沒裝在身上的同名實體裝上（自動裝備、測試等不在意是哪一件的場合用） */
-  static async equipItemByName(userInternalId: string, itemName: string, preferredSlot?: EquipSlot) {
+  static async equipItemByName(
+    userInternalId: string,
+    itemName: string,
+    preferredSlot?: EquipSlot
+  ) {
     const item = await this.findItemByName(itemName);
     if (!item) throw new Error(`「${itemName}」不是有效的道具名稱`);
     if (!EQUIPPABLE_TYPES.includes(item.type)) {
@@ -1087,11 +1147,11 @@ export class ItemService {
 
     const quantity = EQUIPPABLE_TYPES.includes(item.type)
       ? await prisma.itemInstance.count({ where: { userId: userInternalId, itemId: item.id } })
-      : (
+      : ((
           await prisma.inventory.findUnique({
             where: { userId_itemId: { userId: userInternalId, itemId: item.id } },
           })
-        )?.quantity ?? 1;
+        )?.quantity ?? 1);
 
     const autoEquipped = await this.maybeAutoEquip(userInternalId, item);
     return { item, quantity, autoEquippedSlot: autoEquipped?.slot ?? null };

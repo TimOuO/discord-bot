@@ -99,23 +99,27 @@ async function buildInventoryView(
     .addFields(
       sectionField("💰", "金幣", [`${chip(user.gold)}`]),
       ...effectiveStatsFields(user, effectiveStats),
-      sectionField("🎒", "裝備欄", (() => {
-        const weaponEq = equipped.find((e) => e.slot === "weapon")?.equipped;
-        const armorEq = equipped.find((e) => e.slot === "armor")?.equipped;
-        // 飾品欄 1/2/3 對玩家來說沒有實質差異，不暴露內部欄位編號；
-        // 但每一格都要各自列出（含空格），不然只裝了 1、2 件時看不出來還有空位可以裝
-        const accessoryLines = ACCESSORY_SLOTS.map((slot) => {
-          const eq = equipped.find((e) => e.slot === slot)?.equipped;
-          return eq ? formatEquippedItem(eq.item, eq.enhanceLevel) : "（空）";
-        });
-        const filledCount = accessoryLines.filter((line) => line !== "（空）").length;
+      sectionField(
+        "🎒",
+        "裝備欄",
+        (() => {
+          const weaponEq = equipped.find((e) => e.slot === "weapon")?.equipped;
+          const armorEq = equipped.find((e) => e.slot === "armor")?.equipped;
+          // 飾品欄 1/2/3 對玩家來說沒有實質差異，不暴露內部欄位編號；
+          // 但每一格都要各自列出（含空格），不然只裝了 1、2 件時看不出來還有空位可以裝
+          const accessoryLines = ACCESSORY_SLOTS.map((slot) => {
+            const eq = equipped.find((e) => e.slot === slot)?.equipped;
+            return eq ? formatEquippedItem(eq.item, eq.enhanceLevel) : "（空）";
+          });
+          const filledCount = accessoryLines.filter((line) => line !== "（空）").length;
 
-        return [
-          `武器：${weaponEq ? formatEquippedItem(weaponEq.item, weaponEq.enhanceLevel) : "（空）"}`,
-          `防具：${armorEq ? formatEquippedItem(armorEq.item, armorEq.enhanceLevel) : "（空）"}`,
-          `飾品（${filledCount}/${ACCESSORY_SLOTS.length}）：${accessoryLines.join("、")}`,
-        ];
-      })())
+          return [
+            `武器：${weaponEq ? formatEquippedItem(weaponEq.item, weaponEq.enhanceLevel) : "（空）"}`,
+            `防具：${armorEq ? formatEquippedItem(armorEq.item, armorEq.enhanceLevel) : "（空）"}`,
+            `飾品（${filledCount}/${ACCESSORY_SLOTS.length}）：${accessoryLines.join("、")}`,
+          ];
+        })()
+      )
     );
 
   const components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[] = [];
@@ -245,12 +249,16 @@ function buildSellQuantityRow(
 
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(buildCustomId("inv_sell_qty", ownerId, String(page), itemName, String(qty), "-5"))
+      .setCustomId(
+        buildCustomId("inv_sell_qty", ownerId, String(page), itemName, String(qty), "-5")
+      )
       .setLabel("-5")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(atMin),
     new ButtonBuilder()
-      .setCustomId(buildCustomId("inv_sell_qty", ownerId, String(page), itemName, String(qty), "-1"))
+      .setCustomId(
+        buildCustomId("inv_sell_qty", ownerId, String(page), itemName, String(qty), "-1")
+      )
       .setLabel("-1")
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(atMin),
@@ -291,7 +299,9 @@ async function buildItemActionRows(
     const equipped = await ItemService.getEquipped(userInternalId);
 
     if (entry.equippedSlot === null) {
-      const bySlot = ACCESSORY_SLOTS.map((slot) => equipped.find((e) => e.slot === slot)?.equipped ?? null);
+      const bySlot = ACCESSORY_SLOTS.map(
+        (slot) => equipped.find((e) => e.slot === slot)?.equipped ?? null
+      );
       const accessorySlotsFull = item.type === "accessory" && bySlot.every((eq) => eq !== null);
 
       if (accessorySlotsFull) {
@@ -300,7 +310,9 @@ async function buildItemActionRows(
           const eq = bySlot[i]!;
           equipButtons.push(
             new ButtonBuilder()
-              .setCustomId(buildCustomId("inv_equip_slot", ownerId, String(page), entry.instanceId, slot))
+              .setCustomId(
+                buildCustomId("inv_equip_slot", ownerId, String(page), entry.instanceId, slot)
+              )
               .setLabel(`換掉「${eq.item.name}${enhanceSuffix(eq.enhanceLevel)}」`.slice(0, 80))
               .setEmoji("🛡️")
               .setStyle(ButtonStyle.Primary)
@@ -325,7 +337,11 @@ async function buildItemActionRows(
       // 失敗會退級的等級要先講清楚，不能等玩家賭輸了才發現
       const job = await ItemService.getJob(userInternalId);
       const riskNote = enhanceFailureDropsLevel(targetLevel, job) ? "・失敗退級" : "";
-      const material = await ItemService.getEnhanceMaterialStatus(userInternalId, item, targetLevel);
+      const material = await ItemService.getEnhanceMaterialStatus(
+        userInternalId,
+        item,
+        targetLevel
+      );
       const shortOfMaterial = material !== null && material.owned < material.requirement.quantity;
 
       // 材料不足時把缺口寫在按鈕上並停用；連一種都沒有就退回稀有度通稱（「史詩材料 0/1」），
@@ -563,11 +579,8 @@ export async function handleInventoryUseButton(interaction: ButtonInteraction) {
   try {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
-    const { item, healedAmount, newHealth, maxHealth, usedAmount, requestedAmount } = await ItemService.useItem(
-      user.id,
-      itemName,
-      qty
-    );
+    const { item, healedAmount, newHealth, maxHealth, usedAmount, requestedAmount } =
+      await ItemService.useItem(user.id, itemName, qty);
     await refreshInventoryView(interaction, ownerId, page);
 
     const wasteNote =
@@ -595,7 +608,11 @@ export async function handleInventorySellButton(interaction: ButtonInteraction) 
   try {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
-    const { item, sellPrice, amount, goldAfter } = await ItemService.sellItem(user.id, itemName, qty);
+    const { item, sellPrice, amount, goldAfter } = await ItemService.sellItem(
+      user.id,
+      itemName,
+      qty
+    );
     await refreshInventoryView(interaction, ownerId, page);
     await interaction.followUp({
       content: `💰 賣掉「${item.name}」x${amount}，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`,
@@ -619,7 +636,10 @@ export async function handleInventorySellInstanceButton(interaction: ButtonInter
   try {
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) throw new Error("找不到你的角色資料");
-    const { item, enhanceLevel, sellPrice, goldAfter } = await ItemService.sellInstance(user.id, instanceId);
+    const { item, enhanceLevel, sellPrice, goldAfter } = await ItemService.sellInstance(
+      user.id,
+      instanceId
+    );
     await refreshInventoryView(interaction, ownerId, page);
     await interaction.followUp({
       content: `💰 賣掉「${item.name}${enhanceSuffix(enhanceLevel)}」，獲得 ${sellPrice} 金幣（目前 ${goldAfter} 金幣）。`,

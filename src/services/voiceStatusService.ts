@@ -5,14 +5,7 @@ import { config } from "../config";
 
 // 每個詞庫名稱對應一組候選詞，每天隨機挑一句
 const PHRASE_POOLS: Record<string, string[]> = {
-  cat: [
-    "喵喵~",
-    "呼嚕呼嚕 🐱",
-    "喵嗚喵嗚",
-    "貓貓在睡覺",
-    "今天也要喵喵",
-    "麻糬糖糖上線中",
-  ],
+  cat: ["喵喵~", "呼嚕呼嚕 🐱", "喵嗚喵嗚", "貓貓在睡覺", "今天也要喵喵", "麻糬糖糖上線中"],
   pigsLots: [
     "好多🐷🐷",
     "豬豬派對 🎉",
@@ -41,9 +34,7 @@ async function rotateVoiceStatuses(rest: REST): Promise<void> {
   for (const [channelId, themeKey] of config.voiceStatusChannels) {
     const pool = PHRASE_POOLS[themeKey];
     if (!pool || pool.length === 0) {
-      console.log(
-        `警告: 語音頻道 ${channelId} 指定的詞庫 "${themeKey}" 不存在或是空的`,
-      );
+      console.log(`警告: 語音頻道 ${channelId} 指定的詞庫 "${themeKey}" 不存在或是空的`);
       continue;
     }
 

@@ -40,7 +40,9 @@ async function replyCraftSuccess(
 
   const rarityLabel = RARITY_LABELS[item.rarity] ?? item.rarity;
   const recipe = (item.recipe as unknown as RecipeIngredient[]) ?? [];
-  const equipNote = autoEquippedSlot ? `，並自動裝備為${SLOT_GROUP_LABELS[autoEquippedSlot]}！` : "";
+  const equipNote = autoEquippedSlot
+    ? `，並自動裝備為${SLOT_GROUP_LABELS[autoEquippedSlot]}！`
+    : "";
   const effects = getItemEffects(item);
 
   const embed = new EmbedBuilder()
@@ -172,9 +174,7 @@ async function buildCraftListView(
   const user = await RPGService.findUserByDiscordId(discordUserId);
   const equipped = user ? await ItemService.getEquipped(user.id) : [];
 
-  const embed = new EmbedBuilder()
-    .setTitle("🔨 鍛造配方")
-    .setColor("#e67e22" as ColorResolvable);
+  const embed = new EmbedBuilder().setTitle("🔨 鍛造配方").setColor("#e67e22" as ColorResolvable);
 
   const components: ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[] = [];
 
@@ -234,7 +234,11 @@ async function buildCraftListView(
   return { embeds: [embed], components };
 }
 
-function buildCraftButtonRow(ownerId: string, page: number, itemName: string): ActionRowBuilder<ButtonBuilder> {
+function buildCraftButtonRow(
+  ownerId: string,
+  page: number,
+  itemName: string
+): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(buildCustomId("craft_make", ownerId, String(page), itemName))
@@ -280,7 +284,11 @@ export async function handleCraftMakeButton(interaction: ButtonInteraction) {
     // 鍛造完回到清單瀏覽狀態（跟 shop 的快捷購買一致），材料有沒有變化清單上會直接看到
     const view = await buildCraftListView(interaction.user.id, ownerId, page);
     await interaction.editReply(view);
-    await interaction.followUp({ content: "🔨 鍛造成功！", flags: MessageFlags.Ephemeral, embeds: payload.embeds });
+    await interaction.followUp({
+      content: "🔨 鍛造成功！",
+      flags: MessageFlags.Ephemeral,
+      embeds: payload.embeds,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await interaction.followUp({ content: `鍛造失敗：${message}`, flags: MessageFlags.Ephemeral });

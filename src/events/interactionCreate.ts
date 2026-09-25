@@ -67,11 +67,12 @@ const BUTTON_HANDLERS: Record<string, (interaction: ButtonInteraction) => Promis
 };
 
 // customId 前綴對應到的下拉選單處理函式
-const SELECT_HANDLERS: Record<string, (interaction: StringSelectMenuInteraction) => Promise<void>> = {
-  inv_select: handleInventorySelect,
-  shop_select: handleShopSelect,
-  craft_select: handleCraftListSelect,
-};
+const SELECT_HANDLERS: Record<string, (interaction: StringSelectMenuInteraction) => Promise<void>> =
+  {
+    inv_select: handleInventorySelect,
+    shop_select: handleShopSelect,
+    craft_select: handleCraftListSelect,
+  };
 
 export default (client: ExtendedClient): void => {
   client.on("interactionCreate", async (interaction: Interaction) => {

@@ -1,8 +1,4 @@
-import {
-  SlashCommandBuilder,
-  ChatInputCommandInteraction,
-  MessageFlags,
-} from "discord.js";
+import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags } from "discord.js";
 import { randomInt } from "../utils/random";
 import type { Command } from "./index";
 
@@ -58,18 +54,14 @@ function scoreGuess(secret: number, guess: number): { a: number; b: number } {
 }
 
 function formatHistory(guesses: GuessRecord[]): string {
-  return guesses
-    .map((g, i) => `第 ${i + 1} 次：${g.guess} → ${g.a}A${g.b}B`)
-    .join("\n");
+  return guesses.map((g, i) => `第 ${i + 1} 次：${g.guess} → ${g.a}A${g.b}B`).join("\n");
 }
 
 export default {
   data: new SlashCommandBuilder()
     .setName("1a2b")
     .setDescription("1A2B 猜數字遊戲")
-    .addSubcommand((subcommand) =>
-      subcommand.setName("start").setDescription("開始一場新的 1A2B")
-    )
+    .addSubcommand((subcommand) => subcommand.setName("start").setDescription("開始一場新的 1A2B"))
     .addSubcommand((subcommand) =>
       subcommand
         .setName("guess")

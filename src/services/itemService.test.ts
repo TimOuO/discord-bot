@@ -60,9 +60,24 @@ describe("ItemService.buyItem", () => {
 
   it("飾品欄有三格，買第三件飾品時會自動裝進飾品欄 3", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const accA = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 5 });
-    const accB = await createTestItem({ type: "accessory", cost: 50, effectType: "defense", effectValue: 5 });
-    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "maxHealth", effectValue: 10 });
+    const accA = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 5,
+    });
+    const accB = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "defense",
+      effectValue: 5,
+    });
+    const accC = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "maxHealth",
+      effectValue: 10,
+    });
     await ItemService.buyItem(user.id, accA.name); // accessory1
     await ItemService.buyItem(user.id, accB.name); // accessory2
 
@@ -73,7 +88,12 @@ describe("ItemService.buyItem", () => {
 
   it("買武器時，空的武器欄會自動裝備", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 50, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 20,
+    });
 
     const result = await ItemService.buyItem(user.id, weapon.name);
 
@@ -82,7 +102,12 @@ describe("ItemService.buyItem", () => {
 
   it("可以一次指定數量購買多個，金額跟庫存都照數量計算", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const item = await createTestItem({ type: "potion", cost: 60, effectType: "heal", effectValue: 30 });
+    const item = await createTestItem({
+      type: "potion",
+      cost: 60,
+      effectType: "heal",
+      effectValue: 30,
+    });
 
     const result = await ItemService.buyItem(user.id, item.name, 3);
 
@@ -118,7 +143,12 @@ describe("ItemService.sellItem", () => {
 
   it("正在裝備中的最後一件不能賣掉", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 50, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 20,
+    });
     await ItemService.buyItem(user.id, weapon.name); // 會自動裝備（空欄位）
 
     await expect(ItemService.sellItem(user.id, weapon.name)).rejects.toThrow("目前正在裝備中");
@@ -205,7 +235,12 @@ describe("ItemService.sellAllOfItem", () => {
 
   it("裝備中的那件不會被賣掉，只賣多出來的數量", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 20,
+    });
     await ItemService.buyItem(user.id, weapon.name); // 自動裝備這一件
     await ItemService.buyItem(user.id, weapon.name); // 這件留在背包沒裝備
 
@@ -218,7 +253,12 @@ describe("ItemService.sellAllOfItem", () => {
 
   it("全部都裝備中時拒絕", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 20,
+    });
     await ItemService.buyItem(user.id, weapon.name); // 自動裝備
 
     await expect(ItemService.sellAllOfItem(user.id, weapon.name)).rejects.toThrow("全部都在裝備中");
@@ -257,7 +297,12 @@ describe("ItemService.useItem", () => {
 
   it("一次使用多個藥水時，多份療效會疊加", async () => {
     const { user } = await createTestUser({ gold: 1000, health: 10, maxHealth: 200 });
-    const potion = await createTestItem({ type: "potion", cost: 20, effectType: "heal", effectValue: 30 });
+    const potion = await createTestItem({
+      type: "potion",
+      cost: 20,
+      effectType: "heal",
+      effectValue: 30,
+    });
     await ItemService.buyItem(user.id, potion.name, 3);
 
     const result = await ItemService.useItem(user.id, potion.name, 3);
@@ -271,7 +316,12 @@ describe("ItemService.useItem", () => {
 
   it("要求的數量超過回滿血量所需時，只用剛好回滿的數量，不浪費藥水", async () => {
     const { user } = await createTestUser({ gold: 1000, health: 90, maxHealth: 100 });
-    const potion = await createTestItem({ type: "potion", cost: 20, effectType: "heal", effectValue: 30 });
+    const potion = await createTestItem({
+      type: "potion",
+      cost: 20,
+      effectType: "heal",
+      effectValue: 30,
+    });
     await ItemService.buyItem(user.id, potion.name, 5);
 
     const result = await ItemService.useItem(user.id, potion.name, 5);
@@ -285,7 +335,12 @@ describe("ItemService.useItem", () => {
 
   it("要求使用的數量超過庫存時拒絕", async () => {
     const { user } = await createTestUser({ gold: 1000, health: 10, maxHealth: 200 });
-    const potion = await createTestItem({ type: "potion", cost: 20, effectType: "heal", effectValue: 30 });
+    const potion = await createTestItem({
+      type: "potion",
+      cost: 20,
+      effectType: "heal",
+      effectValue: 30,
+    });
     await ItemService.buyItem(user.id, potion.name, 2);
 
     await expect(ItemService.useItem(user.id, potion.name, 5)).rejects.toThrow("只有 2 個");
@@ -295,10 +350,30 @@ describe("ItemService.useItem", () => {
 describe("ItemService.equipItem", () => {
   it("三個飾品欄都滿了、沒指定要換哪一欄時，預設頂掉飾品欄 1", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const accA = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 5 });
-    const accB = await createTestItem({ type: "accessory", cost: 50, effectType: "defense", effectValue: 5 });
-    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "maxHealth", effectValue: 10 });
-    const accD = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 8 });
+    const accA = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 5,
+    });
+    const accB = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "defense",
+      effectValue: 5,
+    });
+    const accC = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "maxHealth",
+      effectValue: 10,
+    });
+    const accD = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 8,
+    });
     await ItemService.buyItem(user.id, accA.name); // 自動裝進 accessory1
     await ItemService.buyItem(user.id, accB.name); // 自動裝進 accessory2
     await ItemService.buyItem(user.id, accC.name); // 自動裝進 accessory3
@@ -312,10 +387,30 @@ describe("ItemService.equipItem", () => {
 
   it("可以指定要換掉飾品欄 2，不會動到飾品欄 1、3", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const accA = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 5 });
-    const accB = await createTestItem({ type: "accessory", cost: 50, effectType: "defense", effectValue: 5 });
-    const accC = await createTestItem({ type: "accessory", cost: 50, effectType: "maxHealth", effectValue: 10 });
-    const accD = await createTestItem({ type: "accessory", cost: 50, effectType: "attack", effectValue: 8 });
+    const accA = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 5,
+    });
+    const accB = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "defense",
+      effectValue: 5,
+    });
+    const accC = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "maxHealth",
+      effectValue: 10,
+    });
+    const accD = await createTestItem({
+      type: "accessory",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 8,
+    });
     await ItemService.buyItem(user.id, accA.name); // accessory1
     await ItemService.buyItem(user.id, accB.name); // accessory2
     await ItemService.buyItem(user.id, accC.name); // accessory3
@@ -333,12 +428,17 @@ describe("ItemService.equipItem", () => {
 
   it("指定的欄位跟道具類型不相容時拒絕（例如武器指定裝到飾品欄）", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 50, effectType: "attack", effectValue: 10 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 10,
+    });
     await ItemService.buyItem(user.id, weapon.name);
 
-    await expect(
-      ItemService.equipItemByName(user.id, weapon.name, "accessory1")
-    ).rejects.toThrow("不能裝到");
+    await expect(ItemService.equipItemByName(user.id, weapon.name, "accessory1")).rejects.toThrow(
+      "不能裝到"
+    );
   });
 });
 
@@ -423,8 +523,18 @@ describe("ItemService.craftItem", () => {
 describe("ItemService.getEffectiveStats", () => {
   it("有效屬性 = 基礎屬性 + 已裝備道具的加成總和", async () => {
     const { user } = await createTestUser({ gold: 1000, attack: 10, defense: 5 });
-    const weapon = await createTestItem({ type: "weapon", cost: 50, effectType: "attack", effectValue: 20 });
-    const armor = await createTestItem({ type: "armor", cost: 50, effectType: "defense", effectValue: 8 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 20,
+    });
+    const armor = await createTestItem({
+      type: "armor",
+      cost: 50,
+      effectType: "defense",
+      effectValue: 8,
+    });
     await ItemService.buyItem(user.id, weapon.name);
     await ItemService.buyItem(user.id, armor.name);
 
@@ -490,7 +600,12 @@ describe("ItemService.getEffectiveStats", () => {
 describe("裝備實體（同名裝備可以分別存在）", () => {
   it("買兩件同名裝備會產生兩個獨立實體，可以各自被指到", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 20,
+    });
 
     await ItemService.buyItem(user.id, weapon.name, 2);
 
@@ -504,7 +619,12 @@ describe("裝備實體（同名裝備可以分別存在）", () => {
 
   it("強化等級不同的同名裝備，有效屬性算的是「裝在身上那一件」的等級", async () => {
     const { user } = await createTestUser({ gold: 1000, attack: 10 });
-    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 20,
+    });
     await ItemService.buyItem(user.id, weapon.name, 2);
 
     const entries = await ItemService.getInventory(user.id);
@@ -512,7 +632,10 @@ describe("裝備實體（同名裝備可以分別存在）", () => {
       (e): e is Extract<typeof e, { kind: "instance" }> => e.kind === "instance"
     );
     // 把其中一件手動設成 +5（強化功能本身是下一階段才做，這裡直接改資料驗證計算路徑）
-    await prisma.itemInstance.update({ where: { id: instances[0].instanceId }, data: { enhanceLevel: 5 } });
+    await prisma.itemInstance.update({
+      where: { id: instances[0].instanceId },
+      data: { enhanceLevel: 5 },
+    });
 
     await ItemService.equipItem(user.id, instances[0].instanceId);
     const enhanced = await ItemService.getEffectiveStats(user.id, {
@@ -534,7 +657,12 @@ describe("裝備實體（同名裝備可以分別存在）", () => {
 
   it("賣裝備是賣掉指定的那一件，裝備中的那件不能賣", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 20,
+    });
     await ItemService.buyItem(user.id, weapon.name, 2); // 其中一件會自動裝上
 
     const equipped = await ItemService.getEquipped(user.id);
@@ -547,19 +675,32 @@ describe("裝備實體（同名裝備可以分別存在）", () => {
     const spare = entries.find((e) => e.kind === "instance" && e.equippedSlot === null);
     expect(spare).toBeDefined();
 
-    const result = await ItemService.sellInstance(user.id, (spare as { instanceId: string }).instanceId);
+    const result = await ItemService.sellInstance(
+      user.id,
+      (spare as { instanceId: string }).instanceId
+    );
     expect(result.sellPrice).toBe(50); // 100 的五折
     expect(await ownedCount(user.id, weapon.id)).toBe(1); // 只剩裝備中的那件
   });
 
   it("賣出強化過的裝備，售價會跟著強化等級一起提高", async () => {
     const { user } = await createTestUser({ gold: 1000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 20,
+    });
     await ItemService.buyItem(user.id, weapon.name, 2);
 
     const entries = await ItemService.getInventory(user.id);
-    const spare = entries.find((e) => e.kind === "instance" && e.equippedSlot === null) as { instanceId: string };
-    await prisma.itemInstance.update({ where: { id: spare.instanceId }, data: { enhanceLevel: 10 } });
+    const spare = entries.find((e) => e.kind === "instance" && e.equippedSlot === null) as {
+      instanceId: string;
+    };
+    await prisma.itemInstance.update({
+      where: { id: spare.instanceId },
+      data: { enhanceLevel: 10 },
+    });
 
     const result = await ItemService.sellInstance(user.id, spare.instanceId);
     expect(result.sellPrice).toBe(100); // 五折的 50，再乘上 +10 的兩倍
@@ -570,7 +711,12 @@ describe("ItemService.enhanceInstance", () => {
   // 先給足夠的錢買裝備，買完再把金幣設成要驗證的值——不然會卡在買不起、測不到強化本身
   async function makeEquipment(goldAfterPurchase: number, cost = 100) {
     const { user } = await createTestUser({ gold: cost });
-    const weapon = await createTestItem({ type: "weapon", cost, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost,
+      effectType: "attack",
+      effectValue: 20,
+    });
     await ItemService.buyItem(user.id, weapon.name);
     await prisma.user.update({ where: { id: user.id }, data: { gold: goldAfterPurchase } });
     const instance = await prisma.itemInstance.findFirstOrThrow({
@@ -629,8 +775,15 @@ describe("ItemService.enhanceInstance", () => {
     await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 7 } });
 
     // +8 除了金幣還要付材料（普通裝備吃普通材料，一次 2 個），這裡驗的是退級不是材料，先備足
-    const material = await createTestItem({ type: "material", rarity: "common", cost: 10, effectType: "none" });
-    await prisma.inventory.create({ data: { userId: user.id, itemId: material.id, quantity: 200 } });
+    const material = await createTestItem({
+      type: "material",
+      rarity: "common",
+      cost: 10,
+      effectType: "none",
+    });
+    await prisma.inventory.create({
+      data: { userId: user.id, itemId: material.id, quantity: 200 },
+    });
 
     for (let i = 0; i < 40; i++) {
       const result = await ItemService.enhanceInstance(user.id, instanceId);
@@ -663,7 +816,12 @@ describe("ItemService.enhanceInstance", () => {
 
   it("強化只影響那一件，同名的另一件不受影響", async () => {
     const { user } = await createTestUser({ gold: 10_000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 20 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 20,
+    });
     await ItemService.buyItem(user.id, weapon.name, 2);
 
     const instances = await prisma.itemInstance.findMany({
@@ -715,9 +873,18 @@ describe("enhanceMaterialRequirement", () => {
 
   it("材料階級跟著裝備稀有度縮放，低階裝備不會被史詩材料擋住", () => {
     // 木劍（普通）強化只吃樹枝那一階的材料，新手不會卡在拿不到史詩材料
-    expect(enhanceMaterialRequirement(asItem("common"), 7)).toEqual({ rarity: "common", quantity: 1 });
-    expect(enhanceMaterialRequirement(asItem("common"), 10)).toEqual({ rarity: "uncommon", quantity: 1 });
-    expect(enhanceMaterialRequirement(asItem("rare"), 7)).toEqual({ rarity: "uncommon", quantity: 1 });
+    expect(enhanceMaterialRequirement(asItem("common"), 7)).toEqual({
+      rarity: "common",
+      quantity: 1,
+    });
+    expect(enhanceMaterialRequirement(asItem("common"), 10)).toEqual({
+      rarity: "uncommon",
+      quantity: 1,
+    });
+    expect(enhanceMaterialRequirement(asItem("rare"), 7)).toEqual({
+      rarity: "uncommon",
+      quantity: 1,
+    });
     expect(enhanceMaterialRequirement(asItem("epic"), 10)).toEqual({ rarity: "epic", quantity: 1 });
   });
 });
@@ -742,9 +909,22 @@ describe("ItemService.enhanceInstance 的材料成本", () => {
     return { user, weapon, instanceId: instance.id };
   }
 
-  async function giveMaterial(userInternalId: string, rarity: string, quantity: number, type = "material") {
-    const material = await createTestItem({ type, rarity, cost: 200, effectType: "none", effectValue: 0 });
-    await prisma.inventory.create({ data: { userId: userInternalId, itemId: material.id, quantity } });
+  async function giveMaterial(
+    userInternalId: string,
+    rarity: string,
+    quantity: number,
+    type = "material"
+  ) {
+    const material = await createTestItem({
+      type,
+      rarity,
+      cost: 200,
+      effectType: "none",
+      effectValue: 0,
+    });
+    await prisma.inventory.create({
+      data: { userId: userInternalId, itemId: material.id, quantity },
+    });
     return material;
   }
 
@@ -823,7 +1003,11 @@ describe("ItemService.enhanceInstance 的材料成本", () => {
 
     const status = await ItemService.getEnhanceMaterialStatus(user.id, weapon, 6);
 
-    expect(status).toEqual({ requirement: { rarity: "epic", quantity: 1 }, name: many.name, owned: 8 });
+    expect(status).toEqual({
+      requirement: { rarity: "epic", quantity: 1 },
+      name: many.name,
+      owned: 8,
+    });
   });
 
   it("一種材料都沒有時 name 是 null，讓按鈕改用中文的稀有度通稱顯示", async () => {
@@ -853,7 +1037,12 @@ describe("ItemService.findAffordableUpgrade", () => {
 
   it("欄位是空的時候，推薦買得起的裝備裡最貴的那件", async () => {
     const { user } = await createTestUser({ gold: ABOVE_CATALOG + 6000 });
-    await createTestItem({ type: "weapon", cost: ABOVE_CATALOG, effectType: "attack", effectValue: 10 });
+    await createTestItem({
+      type: "weapon",
+      cost: ABOVE_CATALOG,
+      effectType: "attack",
+      effectValue: 10,
+    });
     const best = await createTestItem({
       type: "weapon",
       cost: ABOVE_CATALOG + 5000,
@@ -875,8 +1064,18 @@ describe("ItemService.findAffordableUpgrade", () => {
   it("身上兩件都已經比買得起的都好時，不推薦任何東西", async () => {
     const { user } = await createTestUser({ gold: 1_000_000 });
     // 數值開到目錄裡不可能有的高度，買得起的每一件都輸給身上這兩件
-    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 9999 });
-    const armor = await createTestItem({ type: "armor", cost: 100, effectType: "defense", effectValue: 9999 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 9999,
+    });
+    const armor = await createTestItem({
+      type: "armor",
+      cost: 100,
+      effectType: "defense",
+      effectValue: 9999,
+    });
     await ItemService.buyItem(user.id, weapon.name); // 空欄位會自動裝備
     await ItemService.buyItem(user.id, armor.name);
 
@@ -895,12 +1094,27 @@ describe("ItemService.findAffordableUpgrade", () => {
 
   it("飾品不列入推薦，就算三欄都空著也一樣", async () => {
     const { user } = await createTestUser({ gold: 1_000_000 });
-    const weapon = await createTestItem({ type: "weapon", cost: 100, effectType: "attack", effectValue: 9999 });
-    const armor = await createTestItem({ type: "armor", cost: 100, effectType: "defense", effectValue: 9999 });
+    const weapon = await createTestItem({
+      type: "weapon",
+      cost: 100,
+      effectType: "attack",
+      effectValue: 9999,
+    });
+    const armor = await createTestItem({
+      type: "armor",
+      cost: 100,
+      effectType: "defense",
+      effectValue: 9999,
+    });
     await ItemService.buyItem(user.id, weapon.name);
     await ItemService.buyItem(user.id, armor.name);
     // 飾品欄三格全空，而且這件買得起——但飾品不在推薦範圍內
-    await createTestItem({ type: "accessory", cost: 200, effectType: "maxHealth", effectValue: 50 });
+    await createTestItem({
+      type: "accessory",
+      cost: 200,
+      effectType: "maxHealth",
+      effectValue: 50,
+    });
 
     const upgrade = await ItemService.findAffordableUpgrade(user.id, 1_000_000);
 

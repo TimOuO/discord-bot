@@ -13,7 +13,8 @@ import type { EffectiveStats } from "./itemService";
 export const DEFENSE_MITIGATION_CONSTANT = 100;
 
 export function calculateDamage(attack: number, defense: number): number {
-  const mitigated = (attack * DEFENSE_MITIGATION_CONSTANT) / (DEFENSE_MITIGATION_CONSTANT + defense);
+  const mitigated =
+    (attack * DEFENSE_MITIGATION_CONSTANT) / (DEFENSE_MITIGATION_CONSTANT + defense);
   return Math.max(1, Math.round(mitigated) + randomInt(-2, 3));
 }
 
@@ -128,7 +129,8 @@ export function lossHealthFloor(maxHealth: number, userLevel: number): number {
 // 上線時（2026-09-06）四個玩家都在有效上限的 98~100%，也就是說這個問題當下並不存在，
 // 這是預防性的。沒有可以驗證速率的訊號，之後要調的話唯一的依據是玩家反映。
 export const OFFLINE_REGEN_TO_FULL_HOURS = 8;
-export const OFFLINE_REGEN_PER_HOUR_RATIO = (1 - LOSS_FLOOR_MIN_RATIO) / OFFLINE_REGEN_TO_FULL_HOURS;
+export const OFFLINE_REGEN_PER_HOUR_RATIO =
+  (1 - LOSS_FLOOR_MIN_RATIO) / OFFLINE_REGEN_TO_FULL_HOURS;
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 

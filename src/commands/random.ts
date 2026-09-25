@@ -57,9 +57,7 @@ export default {
         attempts: 0,
       });
 
-      const restartNote = hadPreviousGame
-        ? "（原本這個頻道進行中的那場已經重新開始）"
-        : "";
+      const restartNote = hadPreviousGame ? "（原本這個頻道進行中的那場已經重新開始）" : "";
       return interaction.reply(
         `🎯 我想好一個 ${min}~${max} 之間的數字了，這個頻道的大家都可以用 \`/random guess\` 一起猜猜看！${restartNote}`
       );
@@ -68,9 +66,7 @@ export default {
     if (subcommand === "guess") {
       const game = activeGames.get(channelId);
       if (!game) {
-        return interaction.reply(
-          "這個頻道還沒有進行中的遊戲喔，先用 `/random start` 開一場！"
-        );
+        return interaction.reply("這個頻道還沒有進行中的遊戲喔，先用 `/random start` 開一場！");
       }
 
       const guess = interaction.options.getInteger("number", true);

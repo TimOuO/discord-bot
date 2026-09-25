@@ -57,9 +57,7 @@ async function buildShopView(
   const owner = await RPGService.findUserByDiscordId(ownerDiscordId);
   const equipped = owner ? await ItemService.getEquipped(owner.id) : [];
 
-  const embed = new EmbedBuilder()
-    .setTitle("🛒 商店")
-    .setColor("#f39c12" as ColorResolvable);
+  const embed = new EmbedBuilder().setTitle("🛒 商店").setColor("#f39c12" as ColorResolvable);
 
   if (owner) {
     embed.addFields(sectionField("💰", "你的金幣", [`${chip(owner.gold)}`]));
@@ -188,7 +186,9 @@ async function pushQuantityRow(
   const user = await RPGService.findUserByDiscordId(discordUserId);
   const maxQty = user ? computeMaxBuyable(user.gold, item.cost) : 0;
   const clampedQty = Math.min(Math.max(1, qty), Math.max(maxQty, 1));
-  view.components.push(buildBuyQuantityRow(ownerId, page, item.name, clampedQty, item.cost, maxQty));
+  view.components.push(
+    buildBuyQuantityRow(ownerId, page, item.name, clampedQty, item.cost, maxQty)
+  );
 }
 
 export async function handleShopCommand(interaction: ChatInputCommandInteraction) {
@@ -250,7 +250,9 @@ export async function handleShopBuyButton(interaction: ButtonInteraction) {
       itemName,
       qty
     );
-    const equipNote = autoEquippedSlot ? `，並自動裝備為${SLOT_GROUP_LABELS[autoEquippedSlot]}！` : "";
+    const equipNote = autoEquippedSlot
+      ? `，並自動裝備為${SLOT_GROUP_LABELS[autoEquippedSlot]}！`
+      : "";
 
     // 買完回到純瀏覽狀態（跟 inventory 的快捷操作一致），確認訊息只有買的人自己看得到
     const view = await buildShopView(interaction.user.id, ownerId, page);

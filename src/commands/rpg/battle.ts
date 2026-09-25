@@ -30,7 +30,9 @@ function formatBonusEvent(event: BattleBonusEvent): string {
   if (event.result === "lose") {
     return `💀 途中遭遇菁英「${event.enemyName}」Lv.${event.enemyLevel}，激戰 ${chip(event.rounds)} 回合後不敵，血量再次受創……`;
   }
-  const rareLootNote = event.rareLoot ? `\n　└ ✨ 還額外掉落了稀有材料「${event.rareLoot.item.name}」！` : "";
+  const rareLootNote = event.rareLoot
+    ? `\n　└ ✨ 還額外掉落了稀有材料「${event.rareLoot.item.name}」！`
+    : "";
   return `⚔️ 途中遭遇菁英「${event.enemyName}」Lv.${event.enemyLevel}，激戰 ${chip(event.rounds)} 回合後獲勝！經驗 +${chip(event.xpGained)}、金幣 +${chip(event.goldGained)}${rareLootNote}`;
 }
 
@@ -76,12 +78,16 @@ async function runBattleAndBuildReply(userId: string, username: string, avatarUR
   if (battleResult.bonusEvents.length > 0) {
     const lines = battleResult.bonusEvents.map(formatBonusEvent);
     if (battleResult.bonusLevelsGained > 0) {
-      lines.push(`🎉 額外事件的經驗值也讓你升級到了 ${chip(battleResult.user.level)} 級，順便全滿血！`);
+      lines.push(
+        `🎉 額外事件的經驗值也讓你升級到了 ${chip(battleResult.user.level)} 級，順便全滿血！`
+      );
     }
     embed.addFields(sectionField("🎁", "額外事件", lines));
   }
 
-  embed.setFooter({ text: battleResult.result === "win" ? "恭喜獲勝！" : "不幸失敗，休息一下再來吧！" });
+  embed.setFooter({
+    text: battleResult.result === "win" ? "恭喜獲勝！" : "不幸失敗，休息一下再來吧！",
+  });
 
   // 打完才知道「現在」該做什麼：剛賺到的錢夠換裝了、或血被打低了該回血
   const nextStep = await RPGService.getNextStepHint(userId);

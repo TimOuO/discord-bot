@@ -91,7 +91,10 @@ function chainWinRate(level: number, stats: EffectiveStats): number {
   return wins / fights;
 }
 
-function printTable(title: string, compute: (level: number, stats: EffectiveStats) => number): void {
+function printTable(
+  title: string,
+  compute: (level: number, stats: EffectiveStats) => number
+): void {
   console.log(`\n${title}`);
   console.log(["等級".padEnd(6), ...GEAR_PRESETS.map((g) => g.label.padStart(8))].join(""));
   for (const level of LEVELS) {
@@ -105,7 +108,11 @@ function printTable(title: string, compute: (level: number, stats: EffectiveStat
 
 function printPacing(): void {
   console.log("\n【升級節奏】每升一級平均要打幾場（不含加成、以敵人等級 ≈ 玩家等級計）");
-  console.log(["等級".padEnd(6), "門檻差距".padStart(12), "每場經驗".padStart(10), "場數".padStart(8)].join(""));
+  console.log(
+    ["等級".padEnd(6), "門檻差距".padStart(12), "每場經驗".padStart(10), "場數".padStart(8)].join(
+      ""
+    )
+  );
   for (const level of LEVELS) {
     const gap = xpThresholdForLevel(level + 1) - xpThresholdForLevel(level);
     const perFight = 10 + level * 5 + 3; // battle() 勝利經驗：10 + 敵人等級*5 + randomInt(1,6)

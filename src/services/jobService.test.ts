@@ -88,9 +88,7 @@ describe("RPGService.chooseJob", () => {
       RPGService.chooseJob(discordUserId, "forager"),
     ]);
 
-    const changed = results.filter(
-      (r) => r.status === "fulfilled" && r.value.status === "changed"
-    );
+    const changed = results.filter((r) => r.status === "fulfilled" && r.value.status === "changed");
     expect(changed).toHaveLength(1);
 
     const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });

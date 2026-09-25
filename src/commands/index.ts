@@ -60,8 +60,5 @@ export function registerCommands(client: ExtendedClient): void {
     }
   }
 
-  console.log(
-    "已載入的指令:",
-    [...client.commands.keys()].join(", ")
-  );
+  console.log("已載入的指令:", [...client.commands.keys()].join(", "));
 }

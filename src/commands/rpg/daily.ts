@@ -10,8 +10,16 @@ export function buildDailyRewardEmbed(
   // 4 天卻好幾天沒戰鬥），所以這裡是唯一還接觸得到他們的地方
   nextStep?: string | null
 ): EmbedBuilder {
-  const { goldReward, streakBonus, streakBonusPercent, finalGoldReward, xpReward, streak, updatedUser, effectiveMaxHealth } =
-    result;
+  const {
+    goldReward,
+    streakBonus,
+    streakBonusPercent,
+    finalGoldReward,
+    xpReward,
+    streak,
+    updatedUser,
+    effectiveMaxHealth,
+  } = result;
 
   const embed = new EmbedBuilder()
     .setTitle("🎁 每日獎勵")
@@ -56,9 +64,7 @@ export async function handleDailyCommand(interaction: ChatInputCommandInteractio
     const result = await RPGService.claimDaily(interaction.user.id);
 
     if (result.status === "not_started") {
-      return interaction.editReply(
-        "你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！"
-      );
+      return interaction.editReply("你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！");
     }
 
     if (result.status === "already_claimed") {

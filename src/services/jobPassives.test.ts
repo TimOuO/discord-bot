@@ -12,13 +12,26 @@ import prisma from "./dbService";
 describe("深淵掠者：地下城材料里程碑", () => {
   it("沒有職業時每 4 層一件（第 2、6、10）", () => {
     expect([1, 2, 3, 4, 5, 6, 7].map((f) => materialFloor(f, null))).toEqual([
-      false, true, false, false, false, true, false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
     ]);
   });
 
   it("深淵掠者改成每 3 層一件（第 2、5、8）", () => {
     expect([1, 2, 3, 4, 5, 6, 7, 8].map((f) => materialFloor(f, "delver"))).toEqual([
-      false, true, false, false, true, false, false, true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
     ]);
   });
 

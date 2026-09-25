@@ -48,7 +48,10 @@ function describeLoot(loot: PendingLoot[]): string {
   return loot.map((l) => `${l.name}${l.quantity > 1 ? ` x${l.quantity}` : ""}`).join("、");
 }
 
-function buildDecisionRow(ownerId: string, survivalPercent: number): ActionRowBuilder<ButtonBuilder> {
+function buildDecisionRow(
+  ownerId: string,
+  survivalPercent: number
+): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(buildCustomId("dungeon_descend", ownerId))
@@ -108,11 +111,15 @@ function buildDecisionReply(
       `經驗 ${chip(result.xpPending)}（經驗不會沒收）`,
       `材料 ${describeLoot(result.lootPending)}`,
     ]),
-    sectionField("⚠️", `第 ${next.floor} 層`, [
-      describeEnemy(next.enemy.name, next.enemy.level, next.affix),
-      `存活率 ${chip(`${survivalPercent}%`)}`,
-      next.givesMaterial ? "打贏這層會多拿一件稀有材料" : "",
-    ].filter(Boolean))
+    sectionField(
+      "⚠️",
+      `第 ${next.floor} 層`,
+      [
+        describeEnemy(next.enemy.name, next.enemy.level, next.affix),
+        `存活率 ${chip(`${survivalPercent}%`)}`,
+        next.givesMaterial ? "打贏這層會多拿一件稀有材料" : "",
+      ].filter(Boolean)
+    )
   );
 
   embed.setFooter({ text: "沒帶走的東西戰敗就沒了；離開之後要等冷卻才能再進來" });
@@ -144,10 +151,7 @@ function buildDeathReply(
       `金幣 ${chip(result.goldForfeited)}`,
       `材料 ${describeLoot(result.lootForfeited)}`,
     ]),
-    sectionField("✨", "保住的東西", [
-      `經驗 ${chip(result.xpGained)}`,
-      "血量已回復成進場前的狀態",
-    ])
+    sectionField("✨", "保住的東西", [`經驗 ${chip(result.xpGained)}`, "血量已回復成進場前的狀態"])
   );
 
   embed.setFooter({ text: `總共下潛了 ${result.clearedFloors} 層` });
@@ -164,7 +168,9 @@ async function buildReply(
     case "not_started":
       throw new PlayerNotice("你尚未開始 RPG 冒險。請先使用 /rpg start 命令開始遊戲！");
     case "cooldown":
-      throw new PlayerNotice(`⏳ 地下城還在重置，還要等 ${formatCooldown(result.remainingSeconds * 1000)}。`);
+      throw new PlayerNotice(
+        `⏳ 地下城還在重置，還要等 ${formatCooldown(result.remainingSeconds * 1000)}。`
+      );
     case "no_run":
       throw new PlayerNotice("你現在沒有正在進行的下潛，用 `/rpg dungeon` 開始新的一趟。");
     case "at_decision":
@@ -273,7 +279,9 @@ export async function handleDungeonLeaveButton(interaction: ButtonInteraction) {
           `材料 ${describeLoot(result.loot)}`,
         ])
       )
-      .setFooter({ text: `目前金幣 ${result.user.gold}・冷卻 ${formatCooldown(DUNGEON_COOLDOWN_MS)}` });
+      .setFooter({
+        text: `目前金幣 ${result.user.gold}・冷卻 ${formatCooldown(DUNGEON_COOLDOWN_MS)}`,
+      });
 
     await interaction.editReply({
       embeds: [embed],

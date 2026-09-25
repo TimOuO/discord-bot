@@ -54,7 +54,9 @@ async function runFishAndBuildReply(userId: string, username: string, avatarURL:
     throw new PlayerNotice("你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！");
   }
   if (result.status === "cooldown") {
-    throw new PlayerNotice(`🎣 魚餌還沒準備好，還要等 ${formatCooldown(result.remainingSeconds * 1000)}。`);
+    throw new PlayerNotice(
+      `🎣 魚餌還沒準備好，還要等 ${formatCooldown(result.remainingSeconds * 1000)}。`
+    );
   }
   if (result.status === "empty") {
     const embed = new EmbedBuilder()
@@ -64,7 +66,9 @@ async function runFishAndBuildReply(userId: string, username: string, avatarURL:
       .setDescription(result.message);
     return {
       embeds: [embed],
-      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(buildFishRetryButton(userId))],
+      components: [
+        new ActionRowBuilder<ButtonBuilder>().addComponents(buildFishRetryButton(userId)),
+      ],
     };
   }
 
@@ -157,7 +161,9 @@ async function handleFishSellInteraction(
           .addFields({ name: "已賣出", value: `💰 ${soldLabel}` })
       : new EmbedBuilder().setDescription(`已賣出 ${soldLabel}`);
 
-    const retryRow = new ActionRowBuilder<ButtonBuilder>().addComponents(buildFishRetryButton(ownerId));
+    const retryRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      buildFishRetryButton(ownerId)
+    );
     await interaction.editReply({ embeds: [embed], components: [retryRow] });
   } catch (error) {
     // 賣不掉（例如剛好被裝備上、或已經賣完了）不動原本卡片，只用 ephemeral 提示

@@ -29,10 +29,21 @@ function storeItem(overrides: Partial<SteamStoreItem> = {}): SteamStoreItem {
     success: 1,
     name: "女神異聞錄5皇家版",
     type: 0,
-    assets: { asset_url_format: "steam/apps/1687950/${FILENAME}?t=1", header: "header_tchinese.jpg" },
+    assets: {
+      asset_url_format: "steam/apps/1687950/${FILENAME}?t=1",
+      header: "header_tchinese.jpg",
+    },
     purchase_options: [
-      { packageid: 601219, original_price_in_cents: "179000", formatted_original_price: "NT$ 1,790.00" },
-      { bundleid: 48129, original_price_in_cents: "331200", formatted_original_price: "NT$ 3,312.00" },
+      {
+        packageid: 601219,
+        original_price_in_cents: "179000",
+        formatted_original_price: "NT$ 1,790.00",
+      },
+      {
+        bundleid: 48129,
+        original_price_in_cents: "331200",
+        formatted_original_price: "NT$ 3,312.00",
+      },
       {
         packageid: 999999,
         original_price_in_cents: "0",
@@ -86,8 +97,16 @@ describe("parseSteamStoreItem", () => {
   it("原價取單買這款遊戲的方案，不是比較貴的合輯", () => {
     const withoutBasePackageHint = storeItem({
       purchase_options: [
-        { bundleid: 48129, original_price_in_cents: "331200", formatted_original_price: "NT$ 3,312.00" },
-        { packageid: 601219, original_price_in_cents: "179000", formatted_original_price: "NT$ 1,790.00" },
+        {
+          bundleid: 48129,
+          original_price_in_cents: "331200",
+          formatted_original_price: "NT$ 3,312.00",
+        },
+        {
+          packageid: 601219,
+          original_price_in_cents: "179000",
+          formatted_original_price: "NT$ 1,790.00",
+        },
         { packageid: 999999, is_free_to_keep: true },
       ],
     });
@@ -110,7 +129,9 @@ describe("parseSteamStoreItem", () => {
     expect(
       parseSteamStoreItem(
         storeItem({
-          purchase_options: [{ original_price_in_cents: "179000", formatted_original_price: "NT$ 1,790.00" }],
+          purchase_options: [
+            { original_price_in_cents: "179000", formatted_original_price: "NT$ 1,790.00" },
+          ],
         })
       )
     ).toBeNull();

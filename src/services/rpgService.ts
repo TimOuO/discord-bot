@@ -51,7 +51,14 @@ const DUNGEON_FLOOR_COUNT = 4;
 
 const ENEMY_TYPES = ["哥布林", "史萊姆", "骷髏戰士", "狼人", "山賊", "食人魔", "惡靈", "巨蜥"];
 const DUNGEON_BOSS_TYPES = ["地城領主", "遠古巨龍", "深淵魔王", "屍骨君王", "熔岩巨人", "暗影統領"];
-const ELITE_ENEMY_TYPES = ["菁英哥布林王", "血眼狼王", "暗影刺客", "巨人守衛", "毒沼巫妖", "鋼鐵傀儡"];
+const ELITE_ENEMY_TYPES = [
+  "菁英哥布林王",
+  "血眼狼王",
+  "暗影刺客",
+  "巨人守衛",
+  "毒沼巫妖",
+  "鋼鐵傀儡",
+];
 
 // 打贏主戰鬥後，這兩個是各自獨立的骰子，都判斷過（可能同一場戰鬥兩個都中，也可能都沒中）
 const BATTLE_LOOT_EVENT_CHANCE = 0.35;
@@ -176,12 +183,15 @@ async function rollBattleBonusEvent(
 
   if (randomChance(BATTLE_LOOT_EVENT_CHANCE)) {
     if (randomChance(0.5)) {
-      const amount = Math.round((20 + user.level * 5 + randomInt(0, 10)) * (1 + effectiveStats.goldBonus / 100));
+      const amount = Math.round(
+        (20 + user.level * 5 + randomInt(0, 10)) * (1 + effectiveStats.goldBonus / 100)
+      );
       goldGained += amount;
       events.push({ type: "gold", amount });
     } else {
-      const lootName =
-        randomChance(0.5) ? pickFromWeightedTiers(FISH_TABLE) : pickFromWeightedTiers(GATHER_TABLE);
+      const lootName = randomChance(0.5)
+        ? pickFromWeightedTiers(FISH_TABLE)
+        : pickFromWeightedTiers(GATHER_TABLE);
       const item = await ItemService.findItemByName(lootName);
       if (item) {
         const itemXpGained = Math.round(randomInt(2, 6) * (1 + effectiveStats.xpBonus / 100));
@@ -209,8 +219,12 @@ async function rollBattleBonusEvent(
     let eliteGoldGained = 0;
     let rareLoot: RareLoot | null = null;
     if (combat.result === "win") {
-      eliteXpGained = Math.round((20 + enemy.level * 6 + randomInt(1, 8)) * (1 + effectiveStats.xpBonus / 100));
-      eliteGoldGained = Math.round((15 + enemy.level * 3 + randomInt(0, 8)) * (1 + effectiveStats.goldBonus / 100));
+      eliteXpGained = Math.round(
+        (20 + enemy.level * 6 + randomInt(1, 8)) * (1 + effectiveStats.xpBonus / 100)
+      );
+      eliteGoldGained = Math.round(
+        (15 + enemy.level * 3 + randomInt(0, 8)) * (1 + effectiveStats.goldBonus / 100)
+      );
       finalHealth = healOnWin(combat.finalHealth, effectiveStats.maxHealth);
       rareLoot = await grantRareLoot(user.id);
     } else {
@@ -234,7 +248,6 @@ async function rollBattleBonusEvent(
 
   return { events, xpGained, goldGained, finalHealth, eliteAppeared };
 }
-
 
 /**
  * 抽 rollCount 份收穫並寫進背包，回傳每一份是什麼。
@@ -301,7 +314,6 @@ export interface DungeonClearedFloor {
   healthAfter: number;
   rounds: number;
 }
-
 
 export type ChooseJobResult =
   | { status: "not_started" }
@@ -523,10 +535,7 @@ export class RPGService {
     });
   }
 
-  static async getOrCreateUser(
-    userId: string,
-    username: string
-  ): Promise<User> {
+  static async getOrCreateUser(userId: string, username: string): Promise<User> {
     let user = await prisma.user.findUnique({
       where: { userId },
     });
@@ -669,7 +678,11 @@ export class RPGService {
     const enemyLevel = enemy.level;
     const enemyHealth = enemy.health;
 
-    const { result, finalHealth: userHealth, rounds } = simulateCombat(effectiveStats, enemy, user.health);
+    const {
+      result,
+      finalHealth: userHealth,
+      rounds,
+    } = simulateCombat(effectiveStats, enemy, user.health);
 
     let xpGained = 0;
     let goldGained = 0;
@@ -679,8 +692,12 @@ export class RPGService {
     let effectiveMaxHealth = effectiveStats.maxHealth;
 
     if (result === "win") {
-      xpGained = Math.round((10 + enemyLevel * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100));
-      goldGained = Math.round((5 + enemyLevel * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100));
+      xpGained = Math.round(
+        (10 + enemyLevel * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100)
+      );
+      goldGained = Math.round(
+        (5 + enemyLevel * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100)
+      );
 
       const { newLevel, levelsGained, newMaxHealth, statIncrements } = computeLevelUp(
         user.level,
@@ -1124,7 +1141,10 @@ export class RPGService {
     const job = isJobKey(user.job) ? user.job : null;
     if (randomChance(harvestEmptyChanceOverride(job) ?? EMPTY_CATCH_CHANCE)) {
       // lastFish 已經在上面搶冷卻時寫過了，不用再更新一次
-      return { status: "empty", message: EMPTY_CATCH_MESSAGES[randomInt(0, EMPTY_CATCH_MESSAGES.length)] };
+      return {
+        status: "empty",
+        message: EMPTY_CATCH_MESSAGES[randomInt(0, EMPTY_CATCH_MESSAGES.length)],
+      };
     }
 
     const effectiveStats = await ItemService.getEffectiveStats(user.id, {

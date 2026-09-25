@@ -96,7 +96,9 @@ export async function handleProfileCommand(interaction: ChatInputCommandInteract
           `生命值 ${progressBar(regen.health, effectiveStats.maxHealth)} ${chip(`${regen.health}/${effectiveStats.maxHealth}`)}`,
           // 資訊只在能改變決定時才出現：滿血就不用多講，殘血才需要知道「要不要等一下再打」
           ...(regen.health < effectiveStats.maxHealth
-            ? [`約 ${formatCooldown(msUntilFullHealth(regen.health, effectiveStats.maxHealth))}後滿血`]
+            ? [
+                `約 ${formatCooldown(msUntilFullHealth(regen.health, effectiveStats.maxHealth))}後滿血`,
+              ]
             : []),
           `金幣 ${chip(user.gold)}`,
           ...(user.loginStreak > 0 ? [`連續簽到 ${chip(`${user.loginStreak} 天`)}`] : []),

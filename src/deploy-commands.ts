@@ -43,9 +43,7 @@ async function deployCommands() {
         body: commands,
       });
       const guildName = await getGuildName(rest, guildId);
-      console.log(
-        `已註冊到伺服器「${guildName}」(${guildId})（伺服器專屬指令，近乎即時生效）`
-      );
+      console.log(`已註冊到伺服器「${guildName}」(${guildId})（伺服器專屬指令，近乎即時生效）`);
     }
   } else {
     await rest.put(Routes.applicationCommands(config.clientId), {

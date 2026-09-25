@@ -46,7 +46,10 @@ describe("floorReward", () => {
 
   it("成長率讓「推一層」的期望值跟「收手」接近，決策才有意義", () => {
     // 站在第 8 層打完、存活率 60% 的情況：推的期望值不該壓倒性勝過收手
-    const banked = Array.from({ length: 8 }, (_, i) => floorReward(i + 1)).reduce((a, b) => a + b, 0);
+    const banked = Array.from({ length: 8 }, (_, i) => floorReward(i + 1)).reduce(
+      (a, b) => a + b,
+      0
+    );
     const pushEV = 0.6 * (banked + floorReward(9));
 
     // 兩者相差在 20% 以內才算「接近」；差太多就變成永遠該推或永遠該收

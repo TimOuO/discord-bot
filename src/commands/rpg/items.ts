@@ -1,8 +1,4 @@
-import {
-  ChatInputCommandInteraction,
-  AutocompleteInteraction,
-  MessageFlags,
-} from "discord.js";
+import { ChatInputCommandInteraction, AutocompleteInteraction, MessageFlags } from "discord.js";
 import { RPGService } from "../../services/rpgService";
 import { ItemService } from "../../services/itemService";
 import type { InventoryEntry } from "../../services/itemService";
@@ -13,18 +9,13 @@ export async function handleUseCommand(interaction: ChatInputCommandInteraction)
 
     const user = await RPGService.findUserByDiscordId(interaction.user.id);
     if (!user) {
-      return interaction.editReply(
-        "你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！"
-      );
+      return interaction.editReply("你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！");
     }
 
     const itemName = interaction.options.getString("item", true);
     const amount = interaction.options.getInteger("amount") ?? 1;
-    const { item, healedAmount, newHealth, maxHealth, usedAmount, requestedAmount } = await ItemService.useItem(
-      user.id,
-      itemName,
-      amount
-    );
+    const { item, healedAmount, newHealth, maxHealth, usedAmount, requestedAmount } =
+      await ItemService.useItem(user.id, itemName, amount);
 
     const wasteNote =
       usedAmount < requestedAmount
@@ -58,7 +49,10 @@ export async function useAutocomplete(interaction: AutocompleteInteraction) {
 
   return interaction.respond(
     filtered.map((row) => ({
-      name: `${row.item.name}（庫存 ${row.quantity} 個，預設使用 1 個，可用 amount 選項調整）`.slice(0, 100),
+      name: `${row.item.name}（庫存 ${row.quantity} 個，預設使用 1 個，可用 amount 選項調整）`.slice(
+        0,
+        100
+      ),
       value: row.item.name,
     }))
   );

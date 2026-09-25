@@ -19,17 +19,41 @@ beforeAll(async () => {
   // startRPG() 的新手背包會找這三件道具，跟正式的 initDB.ts 對應
   await prisma.item.upsert({
     where: { name: "木劍" },
-    create: { name: "木劍", description: "測試用武器", type: "weapon", rarity: "common", cost: 50, effectType: "attack", effectValue: 5 },
+    create: {
+      name: "木劍",
+      description: "測試用武器",
+      type: "weapon",
+      rarity: "common",
+      cost: 50,
+      effectType: "attack",
+      effectValue: 5,
+    },
     update: {},
   });
   await prisma.item.upsert({
     where: { name: "皮革護甲" },
-    create: { name: "皮革護甲", description: "測試用防具", type: "armor", rarity: "common", cost: 40, effectType: "defense", effectValue: 3 },
+    create: {
+      name: "皮革護甲",
+      description: "測試用防具",
+      type: "armor",
+      rarity: "common",
+      cost: 40,
+      effectType: "defense",
+      effectValue: 3,
+    },
     update: {},
   });
   await prisma.item.upsert({
     where: { name: "小型生命藥水" },
-    create: { name: "小型生命藥水", description: "測試用藥水", type: "potion", rarity: "common", cost: 25, effectType: "heal", effectValue: 30 },
+    create: {
+      name: "小型生命藥水",
+      description: "測試用藥水",
+      type: "potion",
+      rarity: "common",
+      cost: 25,
+      effectType: "heal",
+      effectValue: 30,
+    },
     update: {},
   });
 });
@@ -176,7 +200,10 @@ describe("RPGService.battle", () => {
     for (let i = 0; i < 30; i++) {
       const result = await RPGService.battle(discordUserId);
       expect(result.enemyLevel).toBeLessThanOrEqual(3);
-      await prisma.user.update({ where: { userId: discordUserId }, data: { lastBattle: null, level: 3, xp: 0 } });
+      await prisma.user.update({
+        where: { userId: discordUserId },
+        data: { lastBattle: null, level: 3, xp: 0 },
+      });
     }
   });
 
@@ -306,7 +333,12 @@ describe("RPGService.battle", () => {
   });
 
   it("打輸主戰鬥不會擲額外事件", async () => {
-    const { discordUserId } = await createTestUser({ attack: 1, defense: 0, health: 1, maxHealth: 100 });
+    const { discordUserId } = await createTestUser({
+      attack: 1,
+      defense: 0,
+      health: 1,
+      maxHealth: 100,
+    });
 
     const result = await RPGService.battle(discordUserId);
 
@@ -364,7 +396,9 @@ describe("RPGService.battle", () => {
       expect(eliteEvent.rareLoot).not.toBeNull();
       expect(["rare", "epic", "legendary"]).toContain(eliteEvent.rareLoot?.item.rarity);
 
-      expect(await ownedCount(user.id, eliteEvent.rareLoot!.item.id)).toBe(eliteEvent.rareLoot!.quantity);
+      expect(await ownedCount(user.id, eliteEvent.rareLoot!.item.id)).toBe(
+        eliteEvent.rareLoot!.quantity
+      );
     }
   });
 
@@ -390,7 +424,14 @@ describe("RPGService.battle", () => {
       }
       await prisma.user.update({
         where: { userId: discordUserId },
-        data: { lastBattle: null, level: 1, attack: 15, defense: 10, maxHealth: 100, xp: xpThresholdForLevel(2) - 1 },
+        data: {
+          lastBattle: null,
+          level: 1,
+          attack: 15,
+          defense: 10,
+          maxHealth: 100,
+          xp: xpThresholdForLevel(2) - 1,
+        },
       });
     }
 

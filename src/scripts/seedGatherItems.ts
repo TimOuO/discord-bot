@@ -20,8 +20,18 @@ const GATHER_ITEMS = [
   { name: "魔力碎片", description: "帶著微弱魔力波動的神秘碎片。", rarity: "epic", cost: 200 },
 
   { name: "紫水晶", description: "散發神秘紫色光芒的稀有水晶。", rarity: "legendary", cost: 600 },
-  { name: "星隕石", description: "從天而降的隕石碎片，蘊藏強大能量。", rarity: "legendary", cost: 600 },
-  { name: "遠古符文石", description: "刻著失傳符文的古老石塊，傳說中的存在。", rarity: "legendary", cost: 600 },
+  {
+    name: "星隕石",
+    description: "從天而降的隕石碎片，蘊藏強大能量。",
+    rarity: "legendary",
+    cost: 600,
+  },
+  {
+    name: "遠古符文石",
+    description: "刻著失傳符文的古老石塊，傳說中的存在。",
+    rarity: "legendary",
+    cost: 600,
+  },
 ];
 
 async function seedGatherItems() {

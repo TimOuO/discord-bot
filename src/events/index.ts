@@ -1,12 +1,12 @@
-import { ExtendedClient } from '../structures/ExtendedClient';
-import fs from 'fs';
-import path from 'path';
+import { ExtendedClient } from "../structures/ExtendedClient";
+import fs from "fs";
+import path from "path";
 
 function isLoadableModule(file: string): boolean {
-  if (file.endsWith('.d.ts') || file.endsWith('.map')) return false;
+  if (file.endsWith(".d.ts") || file.endsWith(".map")) return false;
   const ext = path.extname(file);
-  if (ext !== '.ts' && ext !== '.js') return false;
-  return path.basename(file, ext) !== 'index';
+  if (ext !== ".ts" && ext !== ".js") return false;
+  return path.basename(file, ext) !== "index";
 }
 
 export function registerEvents(client: ExtendedClient): void {
@@ -16,8 +16,8 @@ export function registerEvents(client: ExtendedClient): void {
   for (const file of eventFiles) {
     const filePath = path.join(eventsPath, file);
     const event = require(filePath).default;
-    
-    if (typeof event === 'function') {
+
+    if (typeof event === "function") {
       event(client);
     }
   }

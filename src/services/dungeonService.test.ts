@@ -182,9 +182,7 @@ describe("一趟只能結算一次（複製戰利品的防線）", () => {
       RPGService.dungeonLeave(discordUserId),
     ]);
 
-    const left = results.filter(
-      (r) => r.status === "fulfilled" && r.value.status === "left"
-    );
+    const left = results.filter((r) => r.status === "fulfilled" && r.value.status === "left");
     expect(left).toHaveLength(1);
 
     const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
@@ -211,9 +209,7 @@ describe("一趟只能結算一次（複製戰利品的防線）", () => {
       RPGService.dungeonDescend(discordUserId),
     ]);
 
-    const died = results.filter(
-      (r) => r.status === "fulfilled" && r.value.status === "died"
-    );
+    const died = results.filter((r) => r.status === "fulfilled" && r.value.status === "died");
     expect(died).toHaveLength(1);
 
     const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
@@ -232,9 +228,7 @@ describe("一趟只能結算一次（複製戰利品的防線）", () => {
     ]);
 
     const settled = results.filter(
-      (r) =>
-        r.status === "fulfilled" &&
-        (r.value.status === "left" || r.value.status === "died")
+      (r) => r.status === "fulfilled" && (r.value.status === "left" || r.value.status === "died")
     );
     // 離開會結算並刪掉這趟；下潛若成功推進則這趟還在，但兩者不會同時結算
     expect(settled.length).toBeLessThanOrEqual(1);

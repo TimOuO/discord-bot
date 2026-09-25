@@ -26,7 +26,10 @@ import { sectionField } from "../../utils/embeds";
 /** 四個職業全部上線 */
 const AVAILABLE_JOBS: readonly JobKey[] = JOB_KEYS;
 
-function buildJobRows(ownerId: string, currentJob: JobKey | null): ActionRowBuilder<ButtonBuilder>[] {
+function buildJobRows(
+  ownerId: string,
+  currentJob: JobKey | null
+): ActionRowBuilder<ButtonBuilder>[] {
   const buttons = AVAILABLE_JOBS.map((key) =>
     new ButtonBuilder()
       .setCustomId(buildCustomId("job_pick", ownerId, key))
@@ -38,7 +41,12 @@ function buildJobRows(ownerId: string, currentJob: JobKey | null): ActionRowBuil
   return [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)];
 }
 
-async function buildJobView(discordUserId: string, ownerId: string, username: string, avatarURL: string) {
+async function buildJobView(
+  discordUserId: string,
+  ownerId: string,
+  username: string,
+  avatarURL: string
+) {
   const user = await RPGService.findUserByDiscordId(discordUserId);
   if (!user) {
     throw new PlayerNotice("你尚未開始 RPG 冒險。請先使用 `/rpg start` 命令開始遊戲！");
@@ -62,11 +70,9 @@ async function buildJobView(discordUserId: string, ownerId: string, username: st
 
   embed.addFields(
     ...AVAILABLE_JOBS.map((key) =>
-      sectionField(
-        key === currentJob ? "✅" : "▫️",
-        `${JOB_LABELS[key]}（${JOB_SYSTEMS[key]}）`,
-        [JOB_DESCRIPTIONS[key]]
-      )
+      sectionField(key === currentJob ? "✅" : "▫️", `${JOB_LABELS[key]}（${JOB_SYSTEMS[key]}）`, [
+        JOB_DESCRIPTIONS[key],
+      ])
     )
   );
 
@@ -120,9 +126,7 @@ export async function handleJobPickButton(interaction: ButtonInteraction) {
       case "already_that_job":
         throw new PlayerNotice("你已經是這個職業了。");
       case "not_enough_gold":
-        throw new PlayerNotice(
-          `變更職業需要 ${result.cost} 金幣，你只有 ${result.gold} 金幣。`
-        );
+        throw new PlayerNotice(`變更職業需要 ${result.cost} 金幣，你只有 ${result.gold} 金幣。`);
     }
 
     // 重新畫一次職業殿堂，讓「目前職業」的標記跟著更新
@@ -134,7 +138,8 @@ export async function handleJobPickButton(interaction: ButtonInteraction) {
     );
     await interaction.editReply(payload);
 
-    const costNote = result.cost > 0 ? `（花費 ${result.cost} 金幣，剩 ${result.goldAfter}）` : "（首次免費）";
+    const costNote =
+      result.cost > 0 ? `（花費 ${result.cost} 金幣，剩 ${result.goldAfter}）` : "（首次免費）";
     await interaction.followUp({
       content: `🎖️ 你成為了 **${JOB_LABELS[result.job]}**${costNote}\n${JOB_DESCRIPTIONS[result.job]}`,
       flags: MessageFlags.Ephemeral,
