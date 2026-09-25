@@ -43,4 +43,10 @@ export const config = {
       .filter(Boolean)
       .map((pair) => pair.split(":").map((s) => s.trim()) as [string, string])
   ),
+  // Steam 限時免費遊戲要公告到哪些頻道，逗號分隔多個頻道 ID。
+  // 沒設定就跟著 DAILY_ANNOUNCE_CHANNEL_ID，發到每個伺服器的簽到公告頻道
+  steamFreeChannelIds: (process.env.STEAM_FREE_CHANNEL_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean),
 };

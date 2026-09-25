@@ -158,3 +158,11 @@ model DungeonRun {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+// 已經公告過的 Steam 限免遊戲，用來避免同一個限免每 30 分鐘重複洗版。
+// 存資料庫而不是記憶體：每天好幾次部署重啟，記在記憶體的話每次重啟都會把還在限免的遊戲再公告一次
+model AnnouncedFreeGame {
+  steamAppId  String   @id
+  title       String
+  announcedAt DateTime @default(now())
+}

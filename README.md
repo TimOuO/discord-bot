@@ -7,7 +7,7 @@
 - **RPG**：`/rpg start`、`profile`、`inventory`、`battle`、`dungeon`、`fish`、`gather`、`craft`、`daily`、`leaderboard`、`use`、`shop`
 - **小遊戲**：`/random`、`rps`、`1a2b`
 - **系統/工具**：`/ping`、`help`、`status`（限機器人擁有者）
-- **背景服務**（非指令觸發，由事件監聽自動運作）：語音頻道自動簽到、語音頻道狀態文字每日輪替、關鍵字彩蛋回覆、每日資料庫備份（私訊 DM 給指定使用者）
+- **背景服務**（非指令觸發，由事件監聽自動運作）：語音頻道自動簽到、語音頻道狀態文字每日輪替、關鍵字彩蛋回覆、每日資料庫備份（私訊 DM 給指定使用者）、Steam 限時免費公告
 
 完整功能規劃、每個功能背後的決策紀錄見 [PRD.md](PRD.md)；領域詞彙見 [CONTEXT.md](CONTEXT.md)；架構決策記錄見 [docs/adr/](docs/adr/)。
 
@@ -31,6 +31,7 @@
 | `DAILY_ANNOUNCE_CHANNEL_ID` | 選填 | 語音頻道自動簽到成功時要公告到哪個頻道。**格式**：`伺服器ID:頻道ID`，逗號分隔多組，例如 `111:333,222:444`（不同伺服器的頻道 ID 不能共用，要各自對應各自的伺服器） |
 | `VOICE_STATUS_CHANNELS` | 選填 | 每日自動輪替狀態文字的語音頻道清單。**格式**：`頻道ID:詞庫名稱`，逗號分隔多組，例如 `111:cat,222:pigsLots`（詞庫實際內容在 `src/services/voiceStatusService.ts` 裡設定） |
 | `BACKUP_DM_USER_ID` | 選填 | 每日資料庫備份要私訊給誰；不設定就不會執行備份 |
+| `STEAM_FREE_CHANNEL_IDS` | 選填 | Steam 限時免費遊戲要公告到哪些頻道，逗號分隔多個頻道 ID，例如 `333,444`。不設定就跟著 `DAILY_ANNOUNCE_CHANNEL_ID`，發到每個伺服器的簽到公告頻道 |
 
 ## 從零開始跑起來
 
