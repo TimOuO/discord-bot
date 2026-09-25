@@ -26,12 +26,15 @@ const send = (text: SendText): Action => ({ type: "send", text });
 const react = (emoji: string): Action => ({ type: "react", emoji });
 const wait = (ms: number): Action => ({ type: "wait", ms });
 
-const includesAny = (s: string, ...needles: string[]) => needles.some((n) => s.includes(n));
-const equalsAny = (s: string, ...values: string[]) => values.some((v) => s === v);
+const includesAny = (s: string, ...needles: string[]) =>
+  needles.some((n) => s.includes(n));
+const equalsAny = (s: string, ...values: string[]) =>
+  values.some((v) => s === v);
 
 const rules: KeywordRule[] = [
   {
-    match: (content, lower) => includesAny(content, "寶貝") || lower.includes("baby"),
+    match: (content, lower) =>
+      includesAny(content, "寶貝") || lower.includes("baby"),
     variants: [
       [
         send((m) => `${m.author} 在呢`),
@@ -83,7 +86,9 @@ const rules: KeywordRule[] = [
   },
   {
     match: (content) => includesAny(content, "哼", "亨", "😐"),
-    variants: [[send((m) => `${m.author}怎麼了呀`), send("誰欺負妳我幫妳揍他 😤")]],
+    variants: [
+      [send((m) => `${m.author}怎麼了呀`), send("誰欺負妳我幫妳揍他 😤")],
+    ],
   },
   {
     match: (content) => content.includes("被你氣死"),
@@ -116,7 +121,10 @@ const rules: KeywordRule[] = [
   {
     match: (content) => includesAny(content, "死胖子", "揍你"),
     variants: [
-      [send((m) => `${m.author}怎麼忍心 🥺 \n看在我幫妳按熊貓的份上`), react("🐼")],
+      [
+        send((m) => `${m.author}怎麼忍心 🥺 \n看在我幫妳按熊貓的份上`),
+        react("🐼"),
+      ],
     ],
   },
   {
@@ -135,14 +143,18 @@ const rules: KeywordRule[] = [
   },
   {
     match: (content) => content.includes("靠"),
-    variants: [[send("Cow 是牛喔~"), react("🐄"), react("🦬"), react("🐂"), react("🐃")]],
+    variants: [
+      [send("Cow 是牛喔~"), react("🐄"), react("🦬"), react("🐂"), react("🐃")],
+    ],
   },
   {
-    match: (content) => equalsAny(content, "胖胖", "呼呼", "胖子", "胖呼呼", "胖乎乎"),
+    match: (content) =>
+      equalsAny(content, "胖胖", "呼呼", "胖子", "胖呼呼", "胖乎乎"),
     variants: [[send("怎麼了呀小肥 😀")]],
   },
   {
-    match: (content) => includesAny(content, "變態", "欠打", "欠揍", "欠奏", "色鬼"),
+    match: (content) =>
+      includesAny(content, "變態", "欠打", "欠揍", "欠奏", "色鬼"),
     variants: [[send("誰!? Who!? 蝦郎!? 😮 \n肯定不是我 😉")]],
   },
   {
@@ -199,7 +211,7 @@ const rules: KeywordRule[] = [
       [
         send("皮諾可，這個直接電死 😡"),
         send(
-          "https://memeprod.sgp1.digitaloceanspaces.com/user-wtf/1593148838775.jpg"
+          "https://memeprod.sgp1.digitaloceanspaces.com/user-wtf/1593148838775.jpg",
         ),
       ],
     ],
@@ -209,7 +221,7 @@ const rules: KeywordRule[] = [
     variants: [
       [
         send((m) => `${m.author} 看看你的肚肚 😀 \n 小心不要變這樣呦~`),
-        send("https://media1.tenor.com/m/pNjz6uu8QDYAAAAd/foca-seal.gif"),
+        send("https://c.tenor.com/pNjz6uu8QDYAAAAd/tenor.gif"),
         react("🍕"),
         react("🍔"),
         react("🍟"),
@@ -223,7 +235,9 @@ const rules: KeywordRule[] = [
   {
     match: (content, lower) =>
       lower.includes("mua") || lower.includes("kiss") || content.includes("親"),
-    variants: [[send("https://c.tenor.com/ufd0ItHQVaIAAAAC/mochi-mochimochi.gif")]],
+    variants: [
+      [send("https://c.tenor.com/ufd0ItHQVaIAAAAC/mochi-mochimochi.gif")],
+    ],
   },
   {
     match: (content) => content.includes("偷看"),
@@ -231,14 +245,16 @@ const rules: KeywordRule[] = [
   },
   {
     match: (content) => content.includes("不要笑"),
-    variants: [[send("噗 (裝沒事"), send("可是會不小心忍不住 😺"), react("😺")]],
+    variants: [
+      [send("噗 (裝沒事"), send("可是會不小心忍不住 😺"), react("😺")],
+    ],
   },
   {
     match: (content) => content.includes("貓"),
     variants: [
       [
         send(
-          "```\n　　　       　  ＿＿\n　    　　　　／＞　　 フ\n　   　 　　　|  　_　 _|\n　    　　　 ／` ミ＿꒳ノ\n　   　 　  /　　　 　|\n　   　　 /　 ヽ　　 ﾉ\n　    　 │　  |　|　|\n　   ／￣|　　|　|　|\n　  | (￣ ヽ＿_ヽ_)__)\n   　＼二つ\n```"
+          "```\n　　　       　  ＿＿\n　    　　　　／＞　　 フ\n　   　 　　　|  　_　 _|\n　    　　　 ／` ミ＿꒳ノ\n　   　 　  /　　　 　|\n　   　　 /　 ヽ　　 ﾉ\n　    　 │　  |　|　|\n　   ／￣|　　|　|　|\n　  | (￣ ヽ＿_ヽ_)__)\n   　＼二つ\n```",
         ),
         react("🐈"),
         react("🐈‍⬛"),
@@ -250,7 +266,10 @@ const rules: KeywordRule[] = [
       includesAny(content, "刀刀", "🔪") || lower.includes("knife"),
     variants: [
       [
-        send((m) => `這個是個危險的物品，幫 ${m.author} 收起來😘 \n 小肥最近累，幫小肥按摩`),
+        send(
+          (m) =>
+            `這個是個危險的物品，幫 ${m.author} 收起來😘 \n 小肥最近累，幫小肥按摩`,
+        ),
         send("https://media.tenor.com/W12FJPalZMsAAAAC/massage-dudu.gif"),
         react("❌"),
         react("🥺"),
@@ -268,7 +287,8 @@ async function runActions(message: Message, actions: Action[]): Promise<void> {
 
   for (const action of actions) {
     if (action.type === "send") {
-      const text = typeof action.text === "function" ? action.text(message) : action.text;
+      const text =
+        typeof action.text === "function" ? action.text(message) : action.text;
       await message.channel.send(text);
     } else if (action.type === "react") {
       await message.react(action.emoji);
