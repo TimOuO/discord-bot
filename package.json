@@ -21,6 +21,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:typecheck": "tsc -p tsconfig.test.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "sim:dungeon": "tsx src/scripts/simDungeon.ts"
   },
   "keywords": [
@@ -42,6 +44,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.1",
     "nodemon": "^3.0.2",
+    "prettier": "^3.9.9",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"

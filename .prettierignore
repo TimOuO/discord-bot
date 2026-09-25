@@ -1,0 +1,7 @@
+dist/
+node_modules/
+src/generated/
+prisma/migrations/
+# Markdown 文件（PRD、README 等）不交給 Prettier，表格和長段落維持手寫的樣子
+*.md
+package-lock.json

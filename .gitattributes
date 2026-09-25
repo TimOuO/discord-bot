@@ -1,0 +1,2 @@
+# 一律用 LF 換行：程式跑在 Linux VM 上，也跟 .prettierrc 的 endOfLine 一致
+* text=auto eol=lf
