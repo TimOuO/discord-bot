@@ -3,6 +3,7 @@ import { randomChance } from "../utils/random";
 import { PlayerNotice } from "../utils/errors";
 import { enhanceLevelLossFromOverride, isJobKey, type JobKey } from "./jobs";
 import prisma from "./dbService";
+import { achievementBonus } from "./achievements";
 
 export const EQUIP_SLOTS = ["weapon", "armor", "accessory1", "accessory2", "accessory3"] as const;
 export type EquipSlot = (typeof EQUIP_SLOTS)[number];
@@ -529,13 +530,23 @@ export class ItemService {
     return parts.join("、");
   }
 
-  // 有效屬性 = 基礎屬性 + 目前所有已裝備道具的加成，即時計算、不寫回 User（見 docs/adr/0001）
-  // 爆擊率/閃避率/金幣加成/經驗加成沒有對應的 User 基礎欄位，一律從 0 開始、純粹來自裝備
+  // 有效屬性 = 基礎屬性 + 目前所有已裝備道具的加成 + 已解鎖成就的加成，
+  // 即時計算、不寫回 User（見 docs/adr/0001）。
+  // 爆擊率/閃避率/金幣加成/經驗加成沒有對應的 User 基礎欄位，一律從 0 開始。
+  //
+  // 成就加成刻意也在這裡加：這個函式是全專案唯一算有效屬性的地方（十幾個呼叫端都走這條），
+  // 加在這裡就不可能有某個系統忘記算進去——職業被動上線時就是因為散在各系統而整組沒生效。
   static async getEffectiveStats(userInternalId: string, base: BaseStats): Promise<EffectiveStats> {
-    const rows = await prisma.equippedItem.findMany({
-      where: { userId: userInternalId },
-      include: { instance: { include: { item: true } } },
-    });
+    const [rows, achievements] = await Promise.all([
+      prisma.equippedItem.findMany({
+        where: { userId: userInternalId },
+        include: { instance: { include: { item: true } } },
+      }),
+      prisma.userAchievement.findMany({
+        where: { userId: userInternalId },
+        select: { key: true },
+      }),
+    ]);
 
     const result: EffectiveStats = { ...base, critRate: 0, dodgeRate: 0, goldBonus: 0, xpBonus: 0 };
     const applyEffect = (type: string, value: number) => {
@@ -557,6 +568,13 @@ export class ItemService {
         applyEffect(effect.type, effect.value);
       }
     }
+
+    // 成就給的能力值。跟裝備不同，這部分不會因為條件現在不符合而消失（見 docs/adr/0005）
+    const fromAchievements = achievementBonus(achievements.map((row) => row.key));
+    for (const [stat, value] of Object.entries(fromAchievements)) {
+      applyEffect(stat, value);
+    }
+
     return result;
   }
 

@@ -9,7 +9,19 @@ export function uniqueId(prefix: string): string {
 
 export async function createTestUser(
   overrides: Partial<
-    Pick<User, "gold" | "level" | "attack" | "defense" | "health" | "maxHealth" | "xp">
+    Pick<
+      User,
+      | "gold"
+      | "level"
+      | "attack"
+      | "defense"
+      | "health"
+      | "maxHealth"
+      | "xp"
+      | "loginStreak"
+      | "job"
+      | "title"
+    >
   > = {}
 ): Promise<{ discordUserId: string; user: User }> {
   const discordUserId = uniqueId("user");
