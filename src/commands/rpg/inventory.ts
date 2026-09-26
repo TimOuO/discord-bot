@@ -30,6 +30,8 @@ import { sectionField, chip } from "../../utils/embeds";
 import { buildCustomId, parseCustomId, requireInteractionOwner } from "../../utils/interactions";
 import { describeCommandError } from "../../utils/errors";
 import { effectiveStatsFields } from "./statsFields";
+import { notifyUnlockedAchievements } from "./achievements";
+import { AchievementService } from "../../services/achievementService";
 
 const PAGE_SIZE = 10;
 
@@ -401,6 +403,9 @@ async function buildItemActionRows(
 export async function handleInventoryCommand(interaction: ChatInputCommandInteraction) {
   try {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    // 背包卡片也顯示有效屬性，所以偵測要在畫卡片之前跑（見 character.ts 的同一段）
+    const owner = await RPGService.findUserByDiscordId(interaction.user.id);
+    const unlockedAchievements = owner ? await AchievementService.sync(owner.id) : [];
     const view = await buildInventoryView(
       interaction.user.id,
       interaction.user.id,
@@ -408,7 +413,8 @@ export async function handleInventoryCommand(interaction: ChatInputCommandIntera
       interaction.user.username,
       interaction.user.displayAvatarURL()
     );
-    return interaction.editReply(view);
+    await interaction.editReply(view);
+    return notifyUnlockedAchievements(interaction, unlockedAchievements);
   } catch (error) {
     console.error("RPG Inventory 命令錯誤:", error);
     const message = error instanceof Error ? error.message : String(error);

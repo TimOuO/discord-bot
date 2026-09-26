@@ -35,6 +35,8 @@ import {
   handleCraftListSelect,
   handleCraftMakeButton,
   handleJobPickButton,
+  handleTitleEquipSelect,
+  handleTitleBuySelect,
 } from "../commands/rpg";
 
 // customId 前綴對應到的按鈕處理函式；新增按鈕時在這裡註冊就好
@@ -72,6 +74,8 @@ const SELECT_HANDLERS: Record<string, (interaction: StringSelectMenuInteraction)
     inv_select: handleInventorySelect,
     shop_select: handleShopSelect,
     craft_select: handleCraftListSelect,
+    title_equip: handleTitleEquipSelect,
+    title_buy: handleTitleBuySelect,
   };
 
 export default (client: ExtendedClient): void => {

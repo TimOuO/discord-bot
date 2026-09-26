@@ -1,10 +1,9 @@
 import { ChatInputCommandInteraction, EmbedBuilder, ColorResolvable } from "discord.js";
 import { RPGService, xpThresholdForLevel } from "../../services/rpgService";
-import { msUntilFullHealth } from "../../services/combat";
-import { formatCooldown } from "../../utils/datetime";
-import { ItemService, ACCESSORY_SLOTS } from "../../services/itemService";
-import { effectiveStatsFields } from "./statsFields";
-import { jobLabelFor } from "./job";
+import { ItemService } from "../../services/itemService";
+import { notifyUnlockedAchievements } from "./achievements";
+import { AchievementService } from "../../services/achievementService";
+import { buildProfileEmbed } from "./profileCard";
 import { sectionField, chip, progressBar } from "../../utils/embeds";
 
 export async function handleStartCommand(interaction: ChatInputCommandInteraction) {
@@ -67,6 +66,9 @@ export async function handleProfileCommand(interaction: ChatInputCommandInteract
     const user = await RPGService.getOrCreateUser(userId, username);
     // 先結算離線回血再顯示，不然玩家看到的是還沒補上的舊血量
     const regen = await RPGService.applyOfflineRegen(user.id);
+    // 成就是懶惰偵測的：在算有效屬性**之前**補記錄，這張卡片顯示的數值才會含這次新解鎖的加成。
+    // 通知要等卡片送出去之後才發（followUp 得在 editReply 後面），所以這裡只拿 key
+    const unlockedAchievements = await AchievementService.sync(user.id);
     const effectiveStats = await ItemService.getEffectiveStats(user.id, {
       attack: user.attack,
       defense: user.defense,
@@ -75,57 +77,18 @@ export async function handleProfileCommand(interaction: ChatInputCommandInteract
 
     const equipped = await ItemService.getEquipped(user.id);
 
-    const gearLine = (slot: string) => {
-      const eq = equipped.find((e) => e.slot === slot)?.equipped;
-      if (!eq) return "（空）";
-      return `${eq.item.name}${eq.enhanceLevel > 0 ? ` +${eq.enhanceLevel}` : ""}`;
-    };
-    const accessories = ACCESSORY_SLOTS.map((slot) => gearLine(slot));
+    const embed = buildProfileEmbed({
+      username,
+      avatarURL: interaction.user.displayAvatarURL({ size: 256 }),
+      user,
+      effectiveStats,
+      health: regen.health,
+      healedWhileAway: regen.healed,
+      equipped,
+    });
 
-    const embed = new EmbedBuilder()
-      .setAuthor({ name: username, iconURL: interaction.user.displayAvatarURL() })
-      .setTitle(`${username} 的角色資料`)
-      .setColor("#2ecc71" as ColorResolvable)
-      // 大頭貼放右上角，卡片才不會整片都是文字
-      .setThumbnail(interaction.user.displayAvatarURL({ size: 256 }))
-      .setDescription(regen.healed > 0 ? `💤 離線期間回復了 ${regen.healed} 點生命。` : null)
-      .addFields(
-        sectionField("📊", "角色狀態", [
-          `職業 ${chip(jobLabelFor(user.job))}`,
-          `等級 ${chip(user.level)}（經驗 ${chip(`${user.xp}/${xpThresholdForLevel(user.level)}`)}）`,
-          `生命值 ${progressBar(regen.health, effectiveStats.maxHealth)} ${chip(`${regen.health}/${effectiveStats.maxHealth}`)}`,
-          // 資訊只在能改變決定時才出現：滿血就不用多講，殘血才需要知道「要不要等一下再打」
-          ...(regen.health < effectiveStats.maxHealth
-            ? [
-                `約 ${formatCooldown(msUntilFullHealth(regen.health, effectiveStats.maxHealth))}後滿血`,
-              ]
-            : []),
-          `金幣 ${chip(user.gold)}`,
-          ...(user.loginStreak > 0 ? [`連續簽到 ${chip(`${user.loginStreak} 天`)}`] : []),
-        ]),
-        ...effectiveStatsFields(user, effectiveStats),
-        sectionField("🎒", "裝備", [
-          `武器 ${gearLine("weapon")}`,
-          `防具 ${gearLine("armor")}`,
-          `飾品 ${accessories.join("、")}`,
-        ])
-      )
-      .setFooter({
-        text: `戰鬥數值已含裝備與強化加成・創建於 ${user.createdAt.toLocaleDateString()}`,
-      });
-
-    const historyLines: string[] = [];
-    if (user.lastBattle) {
-      historyLines.push(`上次戰鬥 ${chip(new Date(user.lastBattle).toLocaleString())}`);
-    }
-    if (user.lastDaily) {
-      historyLines.push(`上次簽到 ${chip(new Date(user.lastDaily).toLocaleString())}`);
-    }
-    if (historyLines.length > 0) {
-      embed.addFields(sectionField("🕒", "時間紀錄", historyLines));
-    }
-
-    return interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
+    return notifyUnlockedAchievements(interaction, unlockedAchievements);
   } catch (error) {
     console.error("RPG Profile 命令錯誤:", error);
     const message = error instanceof Error ? error.message : String(error);

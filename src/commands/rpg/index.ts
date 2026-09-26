@@ -48,6 +48,8 @@ import {
 } from "./craft";
 import { handleUseCommand, useAutocomplete } from "./items";
 import { handleJobCommand, handleJobPickButton } from "./job";
+import { handleAchievementsCommand } from "./achievements";
+import { handleTitleCommand, handleTitleEquipSelect, handleTitleBuySelect } from "./title";
 import {
   handleShopCommand,
   handleShopPageButton,
@@ -87,6 +89,8 @@ export {
   handleCraftListSelect,
   handleCraftMakeButton,
   handleJobPickButton,
+  handleTitleEquipSelect,
+  handleTitleBuySelect,
   buildDailyRewardEmbed,
 };
 
@@ -153,6 +157,14 @@ export default {
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("shop").setDescription("商店：瀏覽、購買道具（用選單+按鈕操作，可選數量）")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("achievements")
+        .setDescription("成就：達成一次就永久保留，每個都會給戰鬥數值加成")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("title").setDescription("稱號：掛一個到資料卡上，或在稱號店用金幣買")
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
@@ -185,6 +197,10 @@ export default {
         return handleJobCommand(interaction);
       case "shop":
         return handleShopCommand(interaction);
+      case "achievements":
+        return handleAchievementsCommand(interaction);
+      case "title":
+        return handleTitleCommand(interaction);
       default:
         return interaction.reply({
           content: "未知的子指令",

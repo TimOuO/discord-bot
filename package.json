@@ -23,7 +23,8 @@
     "test:typecheck": "tsc -p tsconfig.test.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "sim:dungeon": "tsx src/scripts/simDungeon.ts"
+    "sim:dungeon": "tsx src/scripts/simDungeon.ts",
+    "preview:profile": "tsx src/scripts/previewProfileCard.ts"
   },
   "keywords": [
     "discord",

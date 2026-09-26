@@ -1,6 +1,7 @@
 import { ChatInputCommandInteraction, EmbedBuilder, ColorResolvable } from "discord.js";
 import { RPGService, DailyClaimResult } from "../../services/rpgService";
 import { sectionField, chip, progressBar } from "../../utils/embeds";
+import { syncAchievementsQuietly } from "./achievements";
 
 // 共用：/rpg daily 手動簽到、voiceStateUpdate.ts 的自動簽到都用這個組出一樣的 embed
 export function buildDailyRewardEmbed(
@@ -75,7 +76,11 @@ export async function handleDailyCommand(interaction: ChatInputCommandInteractio
 
     const nextStep = await RPGService.getNextStepHint(interaction.user.id);
     const embed = buildDailyRewardEmbed(interaction.user.username, result, nextStep);
-    return interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
+
+    // 連續簽到成就在這裡才可能剛好達成，而且簽到是流失中的新手唯一還會固定執行的指令——
+    // 偵測只掛在資料卡上的話，他們永遠不會知道自己拿到了什麼
+    return syncAchievementsQuietly(interaction, result.updatedUser.id);
   } catch (error) {
     console.error("Daily command error:", error);
     return interaction.editReply("領取每日獎勵時發生錯誤，請稍後再試。");
