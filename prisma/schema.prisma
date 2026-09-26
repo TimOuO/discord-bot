@@ -40,6 +40,8 @@ model User {
   battleStreak      Int     @default(0)
   /// 這一趟連戰保證的那隻菁英怪出現過沒
   streakEliteFired  Boolean @default(false)
+  /// 目前掛在資料卡上的稱號（achievements.ts 的 title key），null = 沒掛。純顯示，不影響任何數值
+  title          String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -48,6 +50,8 @@ model User {
   itemInstances ItemInstance[]
   equipped      EquippedItem[]
   dungeonRun    DungeonRun?
+  achievements  UserAchievement[]
+  titles        UserTitle[]
 }
 
 // 物品模型
@@ -165,4 +169,34 @@ model AnnouncedFreeGame {
   steamAppId  String   @id
   title       String
   announcedAt DateTime @default(now())
+}
+
+// 已經解鎖的成就。條件雖然只看當下狀態（等級、金幣、強化等級……），但一旦偵測到就永久記錄：
+// 這個遊戲的每一項狀態都會往下掉（金幣花掉、強化退級、簽到斷掉），
+// 即時推導的話成就會跟著消失，連它給的能力值一起收回。詳見 docs/adr/0005。
+model UserAchievement {
+  id     String @id @default(uuid())
+  userId String
+  /// achievements.ts 的 AchievementKey
+  key    String
+  /// **偵測到**的時間，不是真正達成的時間——偵測是懶惰的，玩家打開相關畫面才算一次
+  achievedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+}
+
+// 用金幣在稱號店買來的稱號。成就附贈的稱號不存在這裡——那個從 UserAchievement 就推得出來，
+// 存兩份只會有兩份會不一致。玩家擁有的稱號 = 已解鎖成就的稱號 ∪ 這張表裡的列
+model UserTitle {
+  id     String @id @default(uuid())
+  userId String
+  /// achievements.ts 的 TITLE_SHOP key
+  key    String
+  purchasedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
 }
