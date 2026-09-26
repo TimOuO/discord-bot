@@ -24,15 +24,33 @@ export function daysBetweenDateStrings(from: string, to: string): number {
   return Math.round((toMs - fromMs) / (24 * 60 * 60 * 1000));
 }
 
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+
 /**
- * 把冷卻長度寫成按鈕標籤看得懂的樣子（「30 秒」「5 分鐘」「1 分 30 秒」）。
- * 不做無聲進位：90 秒就寫「1 分 30 秒」，不會四捨五入成「2 分鐘」讓玩家白等。
+ * 把一段等待時間寫成看得懂的樣子（「30 秒」「5 分鐘」「1 分 30 秒」「2 小時 30 分」）。
+ *
+ * 原則是**永遠不要說得比實際短**，不然玩家會提早回來、發現還不能按。
+ * 所以 90 秒寫「1 分 30 秒」而不是四捨五入成「2 分鐘」；到小時這個尺度不列秒數，
+ * 但零頭的秒數一律往上進位到分鐘（1 小時 0 分 1 秒 → 1 小時 1 分）。
+ *
+ * 會長到小時的是離線回血的「還要多久滿血」（滿血上限 8 小時）。按鈕上的冷卻都在兩分鐘以內，
+ * 走的還是原本的分秒寫法。
  */
 export function formatCooldown(ms: number): string {
   const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds} 秒`;
+  if (totalSeconds < SECONDS_PER_MINUTE) return `${totalSeconds} 秒`;
 
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return seconds === 0 ? `${minutes} 分鐘` : `${minutes} 分 ${seconds} 秒`;
+  const totalMinutes = Math.floor(totalSeconds / SECONDS_PER_MINUTE);
+  const seconds = totalSeconds % SECONDS_PER_MINUTE;
+
+  if (totalMinutes < MINUTES_PER_HOUR) {
+    return seconds === 0 ? `${totalMinutes} 分鐘` : `${totalMinutes} 分 ${seconds} 秒`;
+  }
+
+  // 小時尺度：秒數不列，但往上進位，不然「1 小時 0 分 1 秒」會被講成「1 小時」
+  const roundedMinutes = totalMinutes + (seconds > 0 ? 1 : 0);
+  const hours = Math.floor(roundedMinutes / MINUTES_PER_HOUR);
+  const minutes = roundedMinutes % MINUTES_PER_HOUR;
+  return minutes === 0 ? `${hours} 小時` : `${hours} 小時 ${minutes} 分`;
 }
