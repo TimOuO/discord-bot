@@ -269,6 +269,11 @@ export default (client: ExtendedClient): void => {
     if (!rule) return;
 
     const variant = rule.variants[randomInt(0, rule.variants.length)];
-    await runActions(message, variant);
+    try {
+      await runActions(message, variant);
+    } catch (error) {
+      // 延遲動作期間原訊息被刪掉、沒有加表情的權限之類的，彩蛋失敗就算了，不能讓它變成未處理的錯誤
+      console.error("關鍵字彩蛋回覆失敗:", error);
+    }
   });
 };

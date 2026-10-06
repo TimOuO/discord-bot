@@ -3,6 +3,7 @@ import { config } from "./config";
 import { registerEvents } from "./events";
 import { registerCommands } from "./commands";
 import { ExtendedClient } from "./structures/ExtendedClient";
+import { installCrashNotifier } from "./services/crashNotifier";
 
 async function main() {
   // 創建擴展的 Discord 客戶端
@@ -14,6 +15,8 @@ async function main() {
       GatewayIntentBits.GuildVoiceStates,
     ],
   });
+  installCrashNotifier(client);
+
   try {
     registerEvents(client);
     registerCommands(client);

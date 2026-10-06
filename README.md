@@ -30,7 +30,7 @@
 | `MESSAGE_TRIGGER_GUILD_ID` | 選填 | 關鍵字彩蛋只在這個伺服器生效，不會被同一位使用者帶到其他伺服器或 DM 觸發 |
 | `DAILY_ANNOUNCE_CHANNEL_ID` | 選填 | 語音頻道自動簽到成功時要公告到哪個頻道。**格式**：`伺服器ID:頻道ID`，逗號分隔多組，例如 `111:333,222:444`（不同伺服器的頻道 ID 不能共用，要各自對應各自的伺服器） |
 | `VOICE_STATUS_CHANNELS` | 選填 | 每日自動輪替狀態文字的語音頻道清單。**格式**：`頻道ID:詞庫名稱`，逗號分隔多組，例如 `111:cat,222:pigsLots`（詞庫實際內容在 `src/services/voiceStatusService.ts` 裡設定） |
-| `BACKUP_DM_USER_ID` | 選填 | 每日資料庫備份要私訊給誰；不設定就不會執行備份 |
+| `BACKUP_DM_USER_ID` | 選填 | 每日資料庫備份、bot 崩潰或出現未處理錯誤時要私訊給誰；不設定就不會執行備份，出錯也只會寫進 log |
 | `STEAM_FREE_CHANNEL_IDS` | 選填 | Steam 限時免費遊戲要公告到哪些頻道，逗號分隔多個頻道 ID，例如 `333,444`。不設定就跟著 `DAILY_ANNOUNCE_CHANNEL_ID`，發到每個伺服器的簽到公告頻道 |
 
 ## 從零開始跑起來
