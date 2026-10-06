@@ -32,7 +32,7 @@
 | M2 | `/daily /inventory /shop /equip`；升級公式 | 日常冷卻運作、購物能加道具 |
 | ~~M3~~ | ~~`/ask` & `/ai chat` Thread 整合~~ | 已移除，AI 功能不再規劃 |
 | ~~M4~~ | ~~Neon Free & GitHub Actions~~ | 已用其他方案取代，見下方調整點 |
-| M5 | 崩潰通知（輕量版） | PM2 崩潰時打 webhook 通知到 Discord |
+| M5 | 崩潰通知（輕量版） | bot 崩潰或出現未處理的錯誤時私訊 owner（見第 26 節） |
 | ~~M6~~ | ~~Release 1.0（Docker Compose 一鍵部署）~~ | 不需要，見下方調整點 |
 
 **調整點：**
@@ -41,18 +41,19 @@
 - 若將來要加排行榜，可作 **M7** 擴充：只需新增 `/rank` 指令 + XP DESC 查詢（後續併入第 7 節路線圖的「排行榜」項目）。
 - **M4 已用其他方案取代（2026-08-31）**：資料庫從頭到尾都是 SQLite，沒有換成 Neon（Postgres）；部署也不是走 GitHub Actions CI，而是 Oracle Cloud VM + 主機端 cron 輪詢 `git pull` 自動部署（見「伺服器部署」相關紀錄）。
 - **M5 降級（2026-08-31）**：完整的 Winston + Sentry 監控對 2 人用的 bot 太重，降級成「PM2 崩潰時發 webhook 通知到 Discord」這種輕量版本；PM2 本身已經會自動重啟，只是還不會主動通知人。
+- **M5 改用 bot 自己私訊（2026-10-06）**：不接 PM2 的 webhook，改在 bot 行程裡攔截未處理的錯誤直接私訊，細節見第 26 節。
 - **M6 標記不需要（2026-08-31）**：bot 是直接裝 Node.js 跑在單一台 VM 上、PM2 常駐，不是容器化部署；用 Docker Compose 包起來對這個規模只有額外複雜度，沒有實質好處。
 
 ## 3. 資料模型（2026-08-31 更新，改為指向唯一事實來源）
 
 Schema 從 M2 開始已經改了好幾次（新增 `effectType`、`rarity`、`lastFish` 等），這裡不逐欄位複製一份清單——那份清單只會再度跟實際 schema 脫節。**實際欄位定義一律以 [`prisma/schema.prisma`](prisma/schema.prisma) 為準**，改 schema 時不用回來同步更新這裡。
 
-現有的模型：`User`（角色狀態、各種 `lastXxx` 冷卻時間戳記）、`Item`（含 `type`/`rarity`/`effectType`/`effectValue`）、`Inventory`（使用者與道具的多對多、含數量）、`EquippedItem`（四個裝備欄位）。相關設計決策見 [ADR 0001](docs/adr/0001-effective-stats-computed-not-stored.md)、[ADR 0002](docs/adr/0002-item-effect-type-field.md)。
+現有的模型（2026-10-06 對照 schema 更新）：`User`（角色狀態、職業、稱號、各種 `lastXxx` 冷卻時間戳記）、`Item`（含 `type`/`rarity`/`effectType`/`effectValue`）、`Inventory`（可堆疊的道具：藥水、魚、材料）、`ItemInstance`（一件件的裝備實體，含強化等級）、`EquippedItem`（五個裝備欄位，指向實體）、`DungeonRun`（進行中的地下城）、`UserAchievement`/`UserTitle`（成就與買來的稱號）、`AnnouncedFreeGame`（公告過的 Steam 限時免費遊戲）。相關設計決策見 [`docs/adr/`](docs/adr/)。
 
 ## 4. 風險與非功能性需求
 
 - 「排名演算法成本」風險已隨 `/rank` 移除而不需考慮，其餘項維持。
-- 性能、測試覆蓋、零成本目標不變（**測試覆蓋目前實際上是 0**，專案裡沒有任何自動化測試，這個目標從沒被實際推進過，先誠實記錄）。
+- 性能、測試覆蓋、零成本目標不變。測試覆蓋從 2026-09 開始實際推進：service 層用 vitest 打獨立的測試資料庫，2026-10-06 時有 290 多個測試，部署前會先跑過（第 14 節的部署 gate）。
 - **`prisma/dev.db` 單點故障風險（2026-08-31 已緩解）**：資料庫只存在 Oracle VM 一份，機器或磁碟出問題會讓兩人進度全部消失。已實作 `backupService.ts`：每天用 `better-sqlite3` 的線上備份 API 產生快照、保留 7 天，並透過 Discord DM 私訊給 owner 做異地備份，不用另外接雲端儲存服務。
 
 ## 5. 下一步（原始規劃）
@@ -97,7 +98,7 @@ Schema 從 M2 開始已經改了好幾次（新增 `effectType`、`rarity`、`la
 
 **明確不做的項目（原因）**：
 
-- 職業殿堂、公會：2 人用的伺服器意義不大
+- 職業殿堂、公會：2 人用的伺服器意義不大（職業後來在第 23 節還是做了，但是重新設計過的版本，不是照搬職業殿堂）
 - 幻化造型、銘文刻印、套裝共鳴：深度裝備系統，投入產出比低
 - 夢境試煉：目前沒有終局內容可對接
 - 體力系統：要等活動數量夠多才有意義，現在做只是徒增操作摩擦
@@ -200,7 +201,7 @@ notify "✅ 已自動部署新版本：舊hash → 新hash"
 1. ✅ `/rpg battle` 結果加「再戰一次」按鈕（`9bb160b`）
 2. ✅ `/rpg fish` 結果加「立即賣掉」按鈕（`ccc53b3`）
 3. ✅ `/rpg shop sell` 改成 embed + 加「全部賣掉」按鈕（`c1abe22`）
-4. ⬜ `/rpg inventory` 換頁 + 選單 + 裝備/賣掉快捷操作
+4. ✅ `/rpg inventory` 換頁 + 選單 + 裝備/賣掉快捷操作（`b364489`）
 5. ✅ `/rpg shop list` 換頁 + 選單 + 購買快捷操作（路線圖 5 步全部完成）
 
 **額外決定（同一次討論一併提出）**：卡片要顯示下指令的人的頭像（用 `EmbedBuilder.setAuthor` 帶 `iconURL`，之後每張新卡片都比照辦理）。
@@ -590,7 +591,23 @@ notify "✅ 已自動部署新版本：舊hash → 新hash"
 
 **沒有回填**：遷移只加表跟欄位，不回寫既有玩家早就達成的成就。條件判斷寫在 `achievements.ts` 會繼續演進，在遷移裡寫死一份 SQL 版本遲早會跟它不一致；既有玩家部署後第一次打開資料卡就會被補上。
 
-## 目前進度對照（2026-08-29 更新）
+## 26. 崩潰與未處理錯誤通知（M5，2026-10-06）
+
+**背景**：程式碼健檢時發現兩個洞疊在一起。關鍵字彩蛋的 `messageCreate` 監聽器沒有 `try/catch`，規則裡又有「延遲」動作：延遲期間原訊息被刪掉，接下來的 `message.react()` 就會丟錯。整個專案也沒有 `process.on("unhandledRejection")`，而 Node 22 遇到沒被 catch 的 rejection **預設會直接結束行程**。PM2 會把 bot 重開，但正在進行中的互動會一起斷掉，而且沒有人會知道剛剛掛過一次。
+
+**改法**：
+
+- `messageCreate` 補上 `try/catch`：彩蛋失敗只寫 log。
+- 新增 `crashNotifier.ts`，在 `index.ts` 登入前裝好：
+  - `unhandledRejection`：寫 log、私訊 owner，**繼續跑**。通常只是某一個事件處理失敗，不值得為它重開整個 bot。
+  - `uncaughtException`：寫 log、私訊 owner（最多等 5 秒），然後 `exit(1)` 交給 PM2 重開。行程狀態可能已經不可信，不能硬撐。
+  - `client.on("error")`：EventEmitter 的 `error` 事件沒有人聽的話，會直接被丟出去變成 uncaughtException。
+- **收件人沿用 `BACKUP_DM_USER_ID`**，跟每日備份、`deploy.sh` 的部署通知是同一個人。不另外開環境變數，因為 `.env` 改了要手動 `scp` 到 VM（第 8 節）。
+- **限流**：同一個錯誤可能在迴圈裡每秒噴一次，所以最多每 10 分鐘私訊一則，下一則會註明中間略過了幾則。`uncaughtException` 不受限流，因為行程馬上就要結束了。
+
+**接不到的情況**：行程被 OOM 砍掉、整台 VM 掛掉，或者還沒登入完成就出錯。前兩種情況這段程式根本沒機會執行；最後一種沒辦法私訊，只能看 log 和部署通知。
+
+## 目前進度對照（2026-10-06 更新）
 
 | 里程碑 | 狀態 | 備註 |
 | --- | --- | --- |
@@ -599,5 +616,5 @@ notify "✅ 已自動部署新版本：舊hash → 新hash"
 | M2 | ✅ | `/daily`、`/shop`、`/inventory`、`/use` 皆已完成，並通過端對端測試；`/battle` 已改用裝備加成後的有效屬性計算傷害。裝備改從 `/rpg inventory` 選道具後按按鈕操作，獨立的 `/equip` 指令已移除 |
 | ~~M3~~ | ❌ 已移除 | `/ai`、Gemini 服務、`@google/generative-ai` 依賴全部拔掉，`GEMINI_API_KEY` 不再是啟動必要條件 |
 | ~~M4~~ | ❌ 已用其他方案取代 | 改用 Oracle Cloud VM（SQLite + PM2 + cron 輪詢自動部署），沒有用到 Neon 或 GitHub Actions |
-| M5 | ⬜ 未開始（已降級） | 範圍縮小為「**PM2 崩潰時** webhook 通知」，還沒實作。`deploy.sh` 已有的是**部署**成功/失敗的 DM 通知（第 14 節），那是另一件事——bot 在執行期間掛掉目前沒有任何人會被通知 |
+| M5 | ✅（輕量版） | bot 自己攔截未處理的錯誤並私訊 owner（第 26 節）；跟 `deploy.sh` 的**部署**通知是兩件事，但收件人相同 |
 | ~~M6~~ | ❌ 標記不需要 | 已直接部署在 VM 上正常運作，不需要 Docker 化 |
