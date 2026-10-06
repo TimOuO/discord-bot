@@ -250,6 +250,223 @@ async function rollBattleBonusEvent(
 }
 
 /**
+ * 搶這一場的出戰權，搶輸就丟出玩家提示。
+ *
+ * 一般是搶冷卻；血戰鬥神連戰進行中（贏了但還沒連滿）不用等冷卻，改成搶「場次 +1」。
+ */
+async function claimBattleSlot(user: User, streakLimit: number): Promise<void> {
+  const continuingStreak = user.battleStreak > 0 && user.battleStreak < streakLimit;
+
+  if (!continuingStreak) {
+    // 先搶冷卻再算戰鬥：where 直接帶「還沒打過或已經過冷卻」的條件，count 是 0 就代表被搶輸了，
+    // 不會有兩個併發請求都通過「讀出來的 lastBattle 還沒過期」檢查、都跑完戰鬥的競態。
+    // 連戰的第一場也要搶，之後幾場靠 battleStreak 的 conditional update 擋重複
+    const cooldownMs = streakLimit > 1 ? BERSERKER_COOLDOWN_MS : BATTLE_COOLDOWN_MS;
+    const battleCutoff = new Date(Date.now() - cooldownMs);
+    const claimedBattle = await prisma.user.updateMany({
+      where: {
+        id: user.id,
+        battleStreak: 0,
+        OR: [{ lastBattle: null }, { lastBattle: { lt: battleCutoff } }],
+      },
+      data: { lastBattle: new Date() },
+    });
+    if (claimedBattle.count === 0) {
+      const remainingTime = Math.ceil(
+        (cooldownMs - (Date.now() - new Date(user.lastBattle!).getTime())) / 1000
+      );
+      throw new PlayerNotice(`⏳ 戰鬥冷卻中，還要等 ${formatCooldown(remainingTime * 1000)}。`);
+    }
+    return;
+  }
+
+  // 連戰的第 2 場之後：搶的時候就把場次 +1。
+  // 原本寫成 increment: 0——守衛條件是「場次還是我們讀到的那個」，但 data 什麼都沒改，
+  // 所以連點兩下時兩個請求讀到同一個值、兩邊都命中、兩邊都打完一場、兩邊都拿獎勵。
+  // 守衛必須改動它自己守的那個欄位，否則等於沒有守衛
+  const claimedFight = await prisma.user.updateMany({
+    where: { id: user.id, battleStreak: user.battleStreak },
+    data: { battleStreak: { increment: 1 } },
+  });
+  if (claimedFight.count === 0) {
+    throw new PlayerNotice("這一場剛剛已經打過了，請重新查看目前狀態");
+  }
+}
+
+interface MainFightOutcome {
+  enemyName: string;
+  enemyLevel: number;
+  enemyHealth: number;
+  result: "win" | "lose";
+  rounds: number;
+  xpGained: number;
+  goldGained: number;
+  message: string;
+  /** 打完（含升級）之後的有效生命上限 */
+  effectiveMaxHealth: number;
+}
+
+/** 打主戰鬥並把經驗、金幣、升級、血量寫回去 */
+async function settleMainFight(user: User): Promise<MainFightOutcome> {
+  // 有效屬性 = 基礎屬性 + 目前裝備加成，戰鬥傷害要用有效屬性計算，裝備才會真正影響戰鬥
+  const effectiveStats = await ItemService.getEffectiveStats(user.id, {
+    attack: user.attack,
+    defense: user.defense,
+    maxHealth: user.maxHealth,
+  });
+
+  // 連戰越打越深：每一場敵人 +3 級，所以連戰不是無限的免費場次
+  const streakBonusLevel = user.battleStreak * BERSERKER_ENEMY_LEVEL_PER_FIGHT;
+  const enemy = rollEnemy(rollEnemyLevel(user.level) + streakBonusLevel, ENEMY_TYPES);
+  const {
+    result,
+    finalHealth: userHealth,
+    rounds,
+  } = simulateCombat(effectiveStats, enemy, user.health);
+  const base = {
+    enemyName: enemy.name,
+    enemyLevel: enemy.level,
+    enemyHealth: enemy.health,
+    result,
+    rounds,
+  };
+
+  if (result === "win") {
+    const xpGained = Math.round(
+      (10 + enemy.level * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100)
+    );
+    const goldGained = Math.round(
+      (5 + enemy.level * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100)
+    );
+
+    // 裝備不會在戰鬥中途變動，所以升級前後的差別只在「基礎值」
+    const { newLevel, levelsGained, newMaxHealth, statIncrements } = computeLevelUp(
+      user.level,
+      user.xp + xpGained,
+      effectiveStats.maxHealth
+    );
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        xp: { increment: xpGained },
+        gold: { increment: goldGained },
+        ...statIncrements,
+        // health 取決於這場戰鬥模擬出的結果，不是相對資料庫舊值的增減，所以維持絕對值寫入
+        // 升級的話直接補滿；沒升級才維持原本「贏了回一點血」的規則
+        health: levelsGained > 0 ? newMaxHealth : healOnWin(userHealth, newMaxHealth),
+      },
+    });
+
+    const message =
+      levelsGained > 0
+        ? `恭喜！你擊敗了 ${enemy.name}，獲得了 ${xpGained} 經驗值和 ${goldGained} 金幣，並且升級到了 ${newLevel} 級！`
+        : `你擊敗了 ${enemy.name}，獲得了 ${xpGained} 經驗值和 ${goldGained} 金幣！`;
+    return { ...base, xpGained, goldGained, message, effectiveMaxHealth: newMaxHealth };
+  }
+
+  const xpGained = Math.max(1, Math.round(enemy.level * 2 * (1 + effectiveStats.xpBonus / 100)));
+
+  // 落敗的安慰經驗值也可能跨過升級門檻，等級/屬性要照樣升，不然經驗值會卡在超過門檻卻不升級的爆表狀態；
+  // 但血量仍然要照落敗懲罰砍到（新）上限的 30%，不能因為剛好升級就用全滿血蓋掉這次的敗北
+  const { newMaxHealth, statIncrements } = computeLevelUp(
+    user.level,
+    user.xp + xpGained,
+    effectiveStats.maxHealth
+  );
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      xp: { increment: xpGained },
+      ...statIncrements,
+      health: lossHealthFloor(newMaxHealth, user.level),
+    },
+  });
+
+  const message = `你被 ${enemy.name} 擊敗了，獲得了 ${xpGained} 點經驗值作為安慰。休息一下再來挑戰吧！`;
+  return { ...base, xpGained, goldGained: 0, message, effectiveMaxHealth: newMaxHealth };
+}
+
+interface BattleBonusSettlement {
+  events: BattleBonusEvent[];
+  levelsGained: number;
+  /** 額外事件讓有效生命上限改變（升級）時才有值，沒變就是 null */
+  effectiveMaxHealth: number | null;
+  eliteAppeared: boolean;
+}
+
+/** 擲打贏之後的額外事件，並把它們的經驗、金幣、血量寫回去 */
+async function settleBattleBonus(user: User, forceElite: boolean): Promise<BattleBonusSettlement> {
+  const stats = await ItemService.getEffectiveStats(user.id, {
+    attack: user.attack,
+    defense: user.defense,
+    maxHealth: user.maxHealth,
+  });
+  const bonus = await rollBattleBonusEvent(user, stats, user.health, forceElite);
+  const settlement: BattleBonusSettlement = {
+    events: bonus.events,
+    levelsGained: 0,
+    effectiveMaxHealth: null,
+    eliteAppeared: bonus.eliteAppeared,
+  };
+  if (bonus.events.length === 0) return settlement;
+
+  const eliteEvent = bonus.events.find((event) => event.type === "elite");
+  const eliteLost = eliteEvent?.type === "elite" && eliteEvent.result === "lose";
+
+  if (eliteLost) {
+    // 菁英怪輸了：跟主戰鬥落敗一樣不觸發升級，經驗值只計入累積，之後靠贏別場戰鬥再一次補上；
+    // 這樣才不會因為安慰經驗值剛好湊到升級門檻，反而用升級的全滿血蓋掉這次的敗北懲罰
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        xp: { increment: bonus.xpGained },
+        gold: { increment: bonus.goldGained },
+        health: bonus.finalHealth,
+      },
+    });
+    return settlement;
+  }
+
+  const { levelsGained, newMaxHealth, statIncrements } = computeLevelUp(
+    user.level,
+    user.xp + bonus.xpGained,
+    stats.maxHealth
+  );
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      xp: { increment: bonus.xpGained },
+      gold: { increment: bonus.goldGained },
+      ...statIncrements,
+      health: levelsGained > 0 ? newMaxHealth : bonus.finalHealth,
+    },
+  });
+  return { ...settlement, levelsGained, effectiveMaxHealth: newMaxHealth };
+}
+
+/**
+ * 贏了就往下累積，連滿或落敗就歸零並讓冷卻從現在開始算。
+ * lastBattle 在連戰期間不會被更新（第一場搶冷卻時寫過），所以冷卻是從整趟結束才起跳
+ */
+async function advanceBattleStreak(
+  user: User,
+  streakLimit: number,
+  won: boolean,
+  eliteAppeared: boolean
+): Promise<void> {
+  const nextStreak = won ? user.battleStreak + 1 : 0;
+  const streakEnded = !won || nextStreak >= streakLimit;
+  await prisma.user.update({
+    where: { id: user.id },
+    data: streakEnded
+      ? { battleStreak: 0, streakEliteFired: false, lastBattle: new Date() }
+      : { battleStreak: nextStreak, streakEliteFired: user.streakEliteFired || eliteAppeared },
+  });
+}
+
+/**
  * 抽 rollCount 份收穫並寫進背包，回傳每一份是什麼。
  *
  * 荒野獵者是「擲兩次獨立的骰子」而不是「同一份拿兩個」——期望值一樣，
@@ -625,229 +842,48 @@ export class RPGService {
       user = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     }
 
-    const job = isJobKey(user.job) ? user.job : null;
-    const streakLimit = maxBattleStreak(job);
-    // 連戰進行中（贏了但還沒連滿）就不用等冷卻，那正是血戰鬥神的被動
-    const continuingStreak = user.battleStreak > 0 && user.battleStreak < streakLimit;
-    const cooldownMs = streakLimit > 1 ? BERSERKER_COOLDOWN_MS : BATTLE_COOLDOWN_MS;
+    const streakLimit = maxBattleStreak(isJobKey(user.job) ? user.job : null);
+    await claimBattleSlot(user, streakLimit);
 
-    if (!continuingStreak) {
-      // 先搶冷卻再算戰鬥：where 直接帶「還沒打過或已經過冷卻」的條件，count 是 0 就代表被搶輸了，
-      // 不會有兩個併發請求都通過「讀出來的 lastBattle 還沒過期」檢查、都跑完戰鬥的競態。
-      // 連戰的第一場也要搶，之後幾場靠 battleStreak 的 conditional update 擋重複
-      const battleCutoff = new Date(Date.now() - cooldownMs);
-      const claimedBattle = await prisma.user.updateMany({
-        where: {
-          id: user.id,
-          battleStreak: 0,
-          OR: [{ lastBattle: null }, { lastBattle: { lt: battleCutoff } }],
-        },
-        data: { lastBattle: new Date() },
-      });
-      if (claimedBattle.count === 0) {
-        const remainingTime = Math.ceil(
-          (cooldownMs - (Date.now() - new Date(user.lastBattle!).getTime())) / 1000
-        );
-        throw new PlayerNotice(`⏳ 戰鬥冷卻中，還要等 ${formatCooldown(remainingTime * 1000)}。`);
-      }
-    } else {
-      // 連戰的第 2 場之後：搶的時候就把場次 +1。
-      // 原本寫成 increment: 0——守衛條件是「場次還是我們讀到的那個」，但 data 什麼都沒改，
-      // 所以連點兩下時兩個請求讀到同一個值、兩邊都命中、兩邊都打完一場、兩邊都拿獎勵。
-      // 守衛必須改動它自己守的那個欄位，否則等於沒有守衛
-      const claimedFight = await prisma.user.updateMany({
-        where: { id: user.id, battleStreak: user.battleStreak },
-        data: { battleStreak: { increment: 1 } },
-      });
-      if (claimedFight.count === 0) {
-        throw new PlayerNotice("這一場剛剛已經打過了，請重新查看目前狀態");
-      }
-    }
-
-    // 有效屬性 = 基礎屬性 + 目前裝備加成，戰鬥傷害要用有效屬性計算，裝備才會真正影響戰鬥
-    const effectiveStats = await ItemService.getEffectiveStats(user.id, {
-      attack: user.attack,
-      defense: user.defense,
-      maxHealth: user.maxHealth,
-    });
-
-    // 連戰越打越深：每一場敵人 +3 級，所以連戰不是無限的免費場次
-    const streakBonusLevel = user.battleStreak * BERSERKER_ENEMY_LEVEL_PER_FIGHT;
-    const enemy = rollEnemy(rollEnemyLevel(user.level) + streakBonusLevel, ENEMY_TYPES);
-    const enemyName = enemy.name;
-    const enemyLevel = enemy.level;
-    const enemyHealth = enemy.health;
-
-    const {
-      result,
-      finalHealth: userHealth,
-      rounds,
-    } = simulateCombat(effectiveStats, enemy, user.health);
-
-    let xpGained = 0;
-    let goldGained = 0;
-    let message = "";
-    // 裝備不會在戰鬥中途變動，所以升級前後的差別只在「基礎值」，這裡先預設沒升級時的有效上限，
-    // win 分支升級時會再蓋成 newMaxHealth（已經把等級加成算進去的有效值）
-    let effectiveMaxHealth = effectiveStats.maxHealth;
-
-    if (result === "win") {
-      xpGained = Math.round(
-        (10 + enemyLevel * 5 + randomInt(1, 6)) * (1 + effectiveStats.xpBonus / 100)
-      );
-      goldGained = Math.round(
-        (5 + enemyLevel * 2 + randomInt(0, 5)) * (1 + effectiveStats.goldBonus / 100)
-      );
-
-      const { newLevel, levelsGained, newMaxHealth, statIncrements } = computeLevelUp(
-        user.level,
-        user.xp + xpGained,
-        effectiveStats.maxHealth
-      );
-      effectiveMaxHealth = newMaxHealth;
-
-      message =
-        levelsGained > 0
-          ? `恭喜！你擊敗了 ${enemyName}，獲得了 ${xpGained} 經驗值和 ${goldGained} 金幣，並且升級到了 ${newLevel} 級！`
-          : `你擊敗了 ${enemyName}，獲得了 ${xpGained} 經驗值和 ${goldGained} 金幣！`;
-
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          xp: { increment: xpGained },
-          gold: { increment: goldGained },
-          ...statIncrements,
-          // health 取決於這場戰鬥模擬出的結果，不是相對資料庫舊值的增減，所以維持絕對值寫入
-          // 升級的話直接補滿；沒升級才維持原本「贏了回一點血」的規則
-          health: levelsGained > 0 ? newMaxHealth : healOnWin(userHealth, newMaxHealth),
-        },
-      });
-    } else {
-      xpGained = Math.max(1, Math.round(enemyLevel * 2 * (1 + effectiveStats.xpBonus / 100)));
-      message = `你被 ${enemyName} 擊敗了，獲得了 ${xpGained} 點經驗值作為安慰。休息一下再來挑戰吧！`;
-
-      // 落敗的安慰經驗值也可能跨過升級門檻，等級/屬性要照樣升，不然經驗值會卡在超過門檻卻不升級的爆表狀態；
-      // 但血量仍然要照落敗懲罰砍到（新）上限的 30%，不能因為剛好升級就用全滿血蓋掉這次的敗北
-      const { newMaxHealth: newMaxHealthOnLoss, statIncrements } = computeLevelUp(
-        user.level,
-        user.xp + xpGained,
-        effectiveStats.maxHealth
-      );
-      effectiveMaxHealth = newMaxHealthOnLoss;
-
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          xp: { increment: xpGained },
-          ...statIncrements,
-          health: lossHealthFloor(newMaxHealthOnLoss, user.level),
-        },
-      });
-    }
-
-    const updatedUser = (await prisma.user.findUnique({
-      where: { userId },
-    })) as User;
+    const fight = await settleMainFight(user);
 
     // 打贏才有資格額外擲「金幣/道具」「菁英怪」兩個獨立事件；跟主戰鬥完全分開結算，
     // 主戰鬥的數值/測試都不受影響，這邊只是額外疊加上去的第二階段
-    let bonusEvents: BattleBonusEvent[] = [];
-    let finalUser = updatedUser;
-    let finalEffectiveMaxHealth = effectiveMaxHealth;
-    let bonusLevelsGained = 0;
-    let eliteAppearedThisFight = false;
-
-    if (result === "win") {
-      const postBattleStats = await ItemService.getEffectiveStats(updatedUser.id, {
-        attack: updatedUser.attack,
-        defense: updatedUser.defense,
-        maxHealth: updatedUser.maxHealth,
-      });
+    let bonus: BattleBonusSettlement = {
+      events: [],
+      levelsGained: 0,
+      effectiveMaxHealth: null,
+      eliteAppeared: false,
+    };
+    if (fight.result === "win") {
       // 連戰的最後一場而且整趟都還沒遇到菁英怪 → 強制出現，這是「保證遭遇一次」的兜底。
       // 平常的 20% 擲骰照舊，所以一趟可能不只一隻
       const isFinalStreakFight = streakLimit > 1 && user.battleStreak + 1 >= streakLimit;
       const forceElite = isFinalStreakFight && !user.streakEliteFired;
-      const bonus = await rollBattleBonusEvent(
-        updatedUser,
-        postBattleStats,
-        updatedUser.health,
-        forceElite
-      );
-      eliteAppearedThisFight = bonus.eliteAppeared;
-
-      if (bonus.events.length > 0) {
-        bonusEvents = bonus.events;
-
-        const eliteEvent = bonus.events.find((event) => event.type === "elite");
-        const eliteLost = eliteEvent?.type === "elite" && eliteEvent.result === "lose";
-
-        if (eliteLost) {
-          // 菁英怪輸了：跟主戰鬥落敗一樣不觸發升級，經驗值只計入累積，之後靠贏別場戰鬥再一次補上；
-          // 這樣才不會因為安慰經驗值剛好湊到升級門檻，反而用升級的全滿血蓋掉這次的敗北懲罰
-          await prisma.user.update({
-            where: { id: user.id },
-            data: {
-              xp: { increment: bonus.xpGained },
-              gold: { increment: bonus.goldGained },
-              health: bonus.finalHealth,
-            },
-          });
-        } else {
-          const { levelsGained, newMaxHealth, statIncrements } = computeLevelUp(
-            updatedUser.level,
-            updatedUser.xp + bonus.xpGained,
-            postBattleStats.maxHealth
-          );
-          bonusLevelsGained = levelsGained;
-          finalEffectiveMaxHealth = newMaxHealth;
-
-          await prisma.user.update({
-            where: { id: user.id },
-            data: {
-              xp: { increment: bonus.xpGained },
-              gold: { increment: bonus.goldGained },
-              ...statIncrements,
-              health: levelsGained > 0 ? newMaxHealth : bonus.finalHealth,
-            },
-          });
-        }
-
-        finalUser = (await prisma.user.findUnique({ where: { userId } })) as User;
-      }
+      const afterMainFight = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+      bonus = await settleBattleBonus(afterMainFight, forceElite);
     }
 
-    // ── 連戰狀態 ──
-    // 贏了就往下累積，連滿或落敗就歸零並讓冷卻從現在開始算。
-    // lastBattle 在連戰期間不會被更新（第一場搶冷卻時寫過），所以冷卻是從整趟結束才起跳
     if (streakLimit > 1) {
-      const nextStreak = result === "win" ? user.battleStreak + 1 : 0;
-      const streakEnded = result !== "win" || nextStreak >= streakLimit;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: streakEnded
-          ? { battleStreak: 0, streakEliteFired: false, lastBattle: new Date() }
-          : {
-              battleStreak: nextStreak,
-              streakEliteFired: user.streakEliteFired || eliteAppearedThisFight,
-            },
-      });
-      finalUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+      await advanceBattleStreak(user, streakLimit, fight.result === "win", bonus.eliteAppeared);
     }
+
+    const finalUser = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
 
     return {
       user: finalUser,
-      enemyName,
-      enemyLevel,
-      enemyHealth,
-      result,
-      xpGained,
-      goldGained,
+      enemyName: fight.enemyName,
+      enemyLevel: fight.enemyLevel,
+      enemyHealth: fight.enemyHealth,
+      result: fight.result,
+      xpGained: fight.xpGained,
+      goldGained: fight.goldGained,
       healthDelta: finalUser.health - user.health,
-      rounds,
-      effectiveMaxHealth: finalEffectiveMaxHealth,
-      message,
-      bonusEvents,
-      bonusLevelsGained,
+      rounds: fight.rounds,
+      effectiveMaxHealth: bonus.effectiveMaxHealth ?? fight.effectiveMaxHealth,
+      message: fight.message,
+      bonusEvents: bonus.events,
+      bonusLevelsGained: bonus.levelsGained,
       battleStreak: finalUser.battleStreak,
       streakLimit,
     };
