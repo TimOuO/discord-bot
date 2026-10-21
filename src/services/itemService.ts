@@ -154,16 +154,28 @@ const ENHANCE_SUCCESS_RATE: Record<number, number> = {
 // 刻意不設「摧毀裝備」——花好幾小時鍛造出來的神話裝一發沒了，對這個規模的伺服器只會勸退
 const ENHANCE_LEVEL_LOSS_FROM = 6;
 
-// 每次強化的費用固定是道具價格的 10%：貴重裝備強化成本自然更高，
-// 但新手也能在便宜裝備上玩得起（木劍每次只要 5 金幣）
-const ENHANCE_COST_RATIO = 0.1;
+// 每次強化的費用 = 道具價格 × 這個比例，依「要衝到的那一級」決定。
+// +1~+5 維持一成：新手跟中期玩家只需要衝到 +5（見上面成功率的註解），不能被擋住。
+// +6 起逐級變貴，是後期玩家的金幣出口（PRD 第 27 節）：一件神話裝 +0→+10 平均總花費
+// 從固定一成時的約 6 萬拉到約 30 萬，剛好是最有錢的玩家存款推得完一件、剩下的要靠繼續玩賺。
+// 曲線用模擬的平均嘗試次數（+6/+7 被嘗試最多次）挑出來，改比例的話總花費要重算
+const DEFAULT_ENHANCE_COST_RATIO = 0.1;
+const ENHANCE_COST_RATIO: Record<number, number> = {
+  6: 0.35,
+  7: 0.5,
+  8: 0.65,
+  9: 0.9,
+  10: 1.5,
+};
 
 export function enhanceSuccessRate(targetLevel: number): number {
   return ENHANCE_SUCCESS_RATE[targetLevel] ?? 0;
 }
 
-export function enhanceCost(item: Item): number {
-  return Math.max(1, Math.round(item.cost * ENHANCE_COST_RATIO));
+/** 衝到 targetLevel 這一次要付的金幣，成功失敗都一樣 */
+export function enhanceCost(item: Pick<Item, "cost">, targetLevel: number): number {
+  const ratio = ENHANCE_COST_RATIO[targetLevel] ?? DEFAULT_ENHANCE_COST_RATIO;
+  return Math.max(1, Math.round(item.cost * ratio));
 }
 
 /**
@@ -921,7 +933,7 @@ export class ItemService {
       throw new Error(`「${instance.item.name}」已經是 +${MAX_ENHANCE_LEVEL}，沒辦法再強化了`);
     }
 
-    const cost = enhanceCost(instance.item);
+    const cost = enhanceCost(instance.item, targetLevel);
     const requirement = enhanceMaterialRequirement(instance.item, targetLevel);
     // 星火匠神的被動看這個：沒傳進去的話被動會靜默失效（上線第一版就是這樣）
     const job = await this.getJob(userInternalId);

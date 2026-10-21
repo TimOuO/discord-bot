@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ItemService, enhanceMaterialRequirement } from "./itemService";
+import { ItemService, enhanceCost, enhanceMaterialRequirement } from "./itemService";
 import type { Item } from "../generated/prisma";
 import { createTestUser, createTestItem, ownedCount } from "../../test/helpers";
 import prisma from "./dbService";
@@ -707,6 +707,35 @@ describe("裝備實體（同名裝備可以分別存在）", () => {
   });
 });
 
+describe("enhanceCost", () => {
+  const mythic = { cost: 6500 } as Item;
+
+  it("+1～+5 收售價的一成，新手跟中期玩家衝 +5 的成本不變", () => {
+    for (let level = 1; level <= 5; level++) {
+      expect(enhanceCost(mythic, level)).toBe(650);
+    }
+  });
+
+  it("+6 起逐級變貴，看的是要衝到的那一級", () => {
+    expect(enhanceCost(mythic, 6)).toBe(2275); // 35%
+    expect(enhanceCost(mythic, 7)).toBe(3250); // 50%
+    expect(enhanceCost(mythic, 8)).toBe(4225); // 65%
+    expect(enhanceCost(mythic, 9)).toBe(5850); // 90%
+    expect(enhanceCost(mythic, 10)).toBe(9750); // 150%
+  });
+
+  it("每一級都不會比前一級便宜", () => {
+    for (let level = 2; level <= 10; level++) {
+      expect(enhanceCost(mythic, level)).toBeGreaterThanOrEqual(enhanceCost(mythic, level - 1));
+    }
+  });
+
+  it("便宜的裝備照比例算，最少收 1 金幣", () => {
+    expect(enhanceCost({ cost: 50 } as Item, 10)).toBe(75); // 木劍衝 +10
+    expect(enhanceCost({ cost: 1 } as Item, 1)).toBe(1);
+  });
+});
+
 describe("ItemService.enhanceInstance", () => {
   // 先給足夠的錢買裝備，買完再把金幣設成要驗證的值——不然會卡在買不起、測不到強化本身
   async function makeEquipment(goldAfterPurchase: number, cost = 100) {
@@ -794,6 +823,25 @@ describe("ItemService.enhanceInstance", () => {
       }
       await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 7 } });
     }
+  });
+
+  it("衝 +6 扣的是 +6 的費用，不是一成", async () => {
+    const { user, instanceId } = await makeEquipment(10_000);
+    await prisma.itemInstance.update({ where: { id: instanceId }, data: { enhanceLevel: 5 } });
+    // +6 要付一個普通材料（普通裝備吃普通材料），這裡驗的是金幣，先備足
+    const material = await createTestItem({
+      type: "material",
+      rarity: "common",
+      cost: 10,
+      effectType: "none",
+    });
+    await prisma.inventory.create({ data: { userId: user.id, itemId: material.id, quantity: 5 } });
+
+    const result = await ItemService.enhanceInstance(user.id, instanceId);
+
+    expect(result.cost).toBe(35); // 100 的 35%
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(after.gold).toBe(10_000 - 35);
   });
 
   it("金幣不夠時拒絕，而且不會動到裝備等級", async () => {

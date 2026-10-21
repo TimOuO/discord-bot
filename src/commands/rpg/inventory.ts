@@ -334,7 +334,7 @@ async function buildItemActionRows(
     // 強化按鈕直接把成功率、費用、材料、失敗後果標在上面，不用點下去才知道自己在賭什麼
     const targetLevel = entry.enhanceLevel + 1;
     if (targetLevel <= MAX_ENHANCE_LEVEL) {
-      const cost = enhanceCost(item);
+      const cost = enhanceCost(item, targetLevel);
       const rate = Math.round(enhanceSuccessRate(targetLevel) * 100);
       // 失敗會退級的等級要先講清楚，不能等玩家賭輸了才發現
       const job = await ItemService.getJob(userInternalId);
